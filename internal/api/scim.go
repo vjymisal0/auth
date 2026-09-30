@@ -37,7 +37,6 @@ var errMissingSSOProvider = errors.New("scim: request has no SSO provider")
 func newSCIMServer(config *conf.GlobalConfiguration, validate server.TokenValidator, limit func(http.Handler) http.Handler, users server.Repository[*core.User], groups server.Repository[*core.Group]) *server.Server {
 	requireToken := server.RequireBearerToken(validate)
 	authenticate := func(next http.Handler) http.Handler {
-		next = scimRememberGetQuery(next)
 		if limit != nil {
 			next = limit(next)
 		}
@@ -93,15 +92,6 @@ func scimTooManyRequests(w http.ResponseWriter, r *http.Request) error {
 
 func scimLogError(r *http.Request, err error) {
 	observability.GetLogEntry(r).Entry.WithError(err).Error("scim: request failed")
-}
-
-func scimRememberGetQuery(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			r = r.WithContext(scimGetQueryKey.WithValue(r.Context(), r.URL.Query()))
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 func newSCIMTokenValidator(db *storage.Connection) server.TokenValidator {
@@ -208,19 +198,6 @@ func scimSearch(query *protocol.SearchRequest, schemas core.Schemas, name string
 	}
 	search.Order = models.SCIMOrder{By: by, Descending: query.Descending()}
 	return search, nil
-}
-
-func scimReturns(projection protocol.Projection, name string) bool {
-	document, err := json.Marshal(projection.Of(map[string]any{name: []any{map[string]any{"value": name}}}))
-	if err != nil {
-		return true
-	}
-	var projected map[string]any
-	if err := json.Unmarshal(document, &projected); err != nil {
-		return true
-	}
-	_, ok := projected[name]
-	return ok
 }
 
 func scimEncode(resource core.Resource, drop ...string) ([]byte, error) {

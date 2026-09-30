@@ -32,11 +32,7 @@ func (s *scimGroups) List(ctx context.Context, query *protocol.SearchRequest) ([
 	if err != nil {
 		return nil, 0, err
 	}
-	projection, err := query.Projection(scimGroupSchemas)
-	if err != nil {
-		projection = protocol.Projection{}
-	}
-	groups, err := s.render(db, providerID, rows, projection)
+	groups, err := s.render(db, providerID, rows, protocol.ProjectionFrom(ctx))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -53,11 +49,7 @@ func (s *scimGroups) Get(ctx context.Context, id string) (*core.Group, error) {
 	if err != nil {
 		return nil, scimTranslate(err)
 	}
-	projection, err := protocol.ParseProjection(scimGetQueryKey.Value(ctx), scimGroupSchemas)
-	if err != nil {
-		projection = protocol.Projection{}
-	}
-	return s.renderOne(db, providerID, row, projection)
+	return s.renderOne(db, providerID, row, protocol.ProjectionFrom(ctx))
 }
 
 func (s *scimGroups) Create(ctx context.Context, group *core.Group) (*core.Group, error) {
@@ -161,7 +153,7 @@ func (s *scimGroups) save(ctx context.Context, providerID uuid.UUID, action mode
 
 func (s *scimGroups) render(tx *storage.Connection, providerID uuid.UUID, rows []models.SCIMGroup, projection protocol.Projection) ([]*core.Group, error) {
 	memberships := []models.SCIMGroupMembership{}
-	if scimReturns(projection, "members") {
+	if projection.Returns("members") {
 		ids := make([]uuid.UUID, len(rows))
 		for i, row := range rows {
 			ids[i] = row.ID

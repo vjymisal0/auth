@@ -469,43 +469,6 @@ func TestSCIMServer(t *testing.T) {
 	})
 }
 
-func TestSCIMReturns(t *testing.T) {
-	schemas := scimGroupSchemas
-	for query, want := range map[string]bool{
-		"":                           true,
-		"excludedAttributes=members": false,
-		"excludedAttributes=MEMBERS": false,
-		"excludedAttributes=urn:ietf:params:scim:schemas:core:2.0:Group:members": false,
-		"excludedAttributes=displayName":                                         true,
-		"excludedAttributes=members.display":                                     true,
-		"attributes=displayName":                                                 false,
-		"attributes=members":                                                     true,
-		"attributes=members.value":                                               true,
-		"attributes=urn:ietf:params:scim:schemas:core:2.0:Group:Members":         true,
-	} {
-		values, err := url.ParseQuery(query)
-		require.NoError(t, err)
-		projection, err := scimProtocol.ParseProjection(values, schemas)
-		require.NoError(t, err, query)
-		require.Equal(t, want, scimReturns(projection, "members"), query)
-	}
-	require.True(t, scimReturns(scimProtocol.Projection{}, "members"))
-}
-
-func TestSCIMRememberGetQuery(t *testing.T) {
-	for method, want := range map[string]url.Values{
-		http.MethodGet:   {"excludedAttributes": {"members"}},
-		http.MethodPatch: nil,
-		http.MethodPut:   nil,
-	} {
-		var got url.Values
-		scimRememberGetQuery(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-			got = scimGetQueryKey.Value(r.Context())
-		})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(method, "/Groups/x?excludedAttributes=members", nil))
-		require.Equal(t, want, got, method)
-	}
-}
-
 func TestSCIMUserFields(t *testing.T) {
 	t.Run("has no email without emails", func(t *testing.T) {
 		require.Empty(t, scimPrimaryEmail(nil))

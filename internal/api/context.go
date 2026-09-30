@@ -31,7 +31,6 @@ var (
 	oauthClientStateKey  = ctxkey.New[uuid.UUID]("oauth_client_state_id")
 	flowStateContextKey  = ctxkey.New[*models.FlowState]("flow_state")
 	scimRequestKey       = ctxkey.New[*http.Request]("scim_request")
-	scimGetQueryKey      = ctxkey.New[url.Values]("scim_get_query")
 	scimSSOProviderIDKey = ctxkey.New[uuid.UUID]("scim_sso_provider_id")
 	scimTokenPrefixKey   = ctxkey.New[string]("scim_token_prefix")
 )
