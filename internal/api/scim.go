@@ -1,12 +1,10 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -39,7 +37,7 @@ var errMissingSSOProvider = errors.New("scim: request has no SSO provider")
 func newSCIMServer(config *conf.GlobalConfiguration, validate server.TokenValidator, limit func(http.Handler) http.Handler, users server.Repository[*core.User], groups server.Repository[*core.Group]) *server.Server {
 	requireToken := server.RequireBearerToken(validate)
 	authenticate := func(next http.Handler) http.Handler {
-		next = scimRejectRemoveWithValue(scimRememberGetQuery(next))
+		next = scimRememberGetQuery(next)
 		if limit != nil {
 			next = limit(next)
 		}
@@ -95,30 +93,6 @@ func scimTooManyRequests(w http.ResponseWriter, r *http.Request) error {
 
 func scimLogError(r *http.Request, err error) {
 	observability.GetLogEntry(r).Entry.WithError(err).Error("scim: request failed")
-}
-
-// RFC 7644 Section 3.5.2.2 defines no "value" for "remove"; refuse it rather than remove every value at "path".
-func scimRejectRemoveWithValue(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPatch {
-			next.ServeHTTP(w, r)
-			return
-		}
-		var read bytes.Buffer
-		req, err := protocol.DecodePatchRequest(io.TeeReader(r.Body, &read))
-		if err != nil {
-			_ = protocol.SendError(w, err)
-			return
-		}
-		for _, op := range req.Operations {
-			if strings.EqualFold(string(op.Op), "remove") && len(op.Value) > 0 && string(bytes.TrimSpace(op.Value)) != "null" {
-				_ = protocol.SendError(w, scimerrors.ErrInvalidSyntax(`"remove" does not take a "value"`))
-				return
-			}
-		}
-		r.Body = io.NopCloser(io.MultiReader(&read, r.Body))
-		next.ServeHTTP(w, r)
-	})
 }
 
 func scimRememberGetQuery(next http.Handler) http.Handler {
