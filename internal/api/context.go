@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 
 	"github.com/gofrs/uuid"
@@ -15,20 +16,24 @@ var (
 	externalProviderTypeKey          = ctxkey.New[string]("external_provider_type")
 	externalProviderEmailOptionalKey = ctxkey.New[bool]("external_provider_allow_no_email")
 
-	tokenKey            = ctxkey.New[*jwt.Token]("jwt")
-	inviteTokenKey      = ctxkey.New[string]("invite_token")
-	signatureKey        = ctxkey.New[string]("signature")
-	targetUserKey       = ctxkey.New[*models.User]("target_user")
-	factorKey           = ctxkey.New[*models.Factor]("factor")
-	sessionKey          = ctxkey.New[*models.Session]("session")
-	externalReferrerKey = ctxkey.New[string]("external_referrer")
-	adminUserKey        = ctxkey.New[*models.User]("admin_user")
-	oauthTokenKey       = ctxkey.New[string]("oauth_token") // for OAuth1.0, also known as request token
-	oauthVerifierKey    = ctxkey.New[string]("oauth_verifier")
-	ssoProviderKey      = ctxkey.New[*models.SSOProvider]("sso_provider")
-	externalHostKey     = ctxkey.New[*url.URL]("external_host")
-	oauthClientStateKey = ctxkey.New[uuid.UUID]("oauth_client_state_id")
-	flowStateContextKey = ctxkey.New[*models.FlowState]("flow_state")
+	tokenKey             = ctxkey.New[*jwt.Token]("jwt")
+	inviteTokenKey       = ctxkey.New[string]("invite_token")
+	signatureKey         = ctxkey.New[string]("signature")
+	targetUserKey        = ctxkey.New[*models.User]("target_user")
+	factorKey            = ctxkey.New[*models.Factor]("factor")
+	sessionKey           = ctxkey.New[*models.Session]("session")
+	externalReferrerKey  = ctxkey.New[string]("external_referrer")
+	adminUserKey         = ctxkey.New[*models.User]("admin_user")
+	oauthTokenKey        = ctxkey.New[string]("oauth_token") // for OAuth1.0, also known as request token
+	oauthVerifierKey     = ctxkey.New[string]("oauth_verifier")
+	ssoProviderKey       = ctxkey.New[*models.SSOProvider]("sso_provider")
+	externalHostKey      = ctxkey.New[*url.URL]("external_host")
+	oauthClientStateKey  = ctxkey.New[uuid.UUID]("oauth_client_state_id")
+	flowStateContextKey  = ctxkey.New[*models.FlowState]("flow_state")
+	scimRequestKey       = ctxkey.New[*http.Request]("scim_request")
+	scimGetQueryKey      = ctxkey.New[url.Values]("scim_get_query")
+	scimSSOProviderIDKey = ctxkey.New[uuid.UUID]("scim_sso_provider_id")
+	scimTokenPrefixKey   = ctxkey.New[string]("scim_token_prefix")
 )
 
 // withToken adds the JWT token to the context.

@@ -212,6 +212,14 @@ Header on which to rate limit the `/token` endpoint. This header is expected to 
 
 Rate limit the number of emails sent per hour on the following endpoints: `/signup`, `/invite`, `/magiclink`, `/recover`, `/otp`, & `/user`.
 
+`GOTRUE_SSO_SCIM_ENABLED` - `bool`
+
+Mounts the SCIM 2.0 routes at `/scim/v2` and the SCIM admin routes at `/admin/sso/providers/{id}/scim`. Defaults to `false`.
+
+`GOTRUE_RATE_LIMIT_SCIM` - `number`
+
+Requests per 5 minutes to `/scim/v2`, with a burst of 30. Requests with a valid SCIM token are limited per SSO provider. Requests without a valid token, and requests to `/ServiceProviderConfig` or to an unknown route, are limited per IP. Defaults to 3000.
+
 `GOTRUE_PASSWORD_MIN_LENGTH` - `int`
 
 Minimum password length, defaults to 6.
