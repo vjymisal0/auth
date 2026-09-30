@@ -4,12 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/gofrs/uuid"
 	"github.com/supabase-community/scim-go/pkg/core"
 	"github.com/supabase-community/scim-go/pkg/protocol"
-	"github.com/supabase-community/scim-go/pkg/scimerrors"
 	"github.com/supabase/auth/internal/models"
 	"github.com/supabase/auth/internal/storage"
 )
@@ -237,9 +235,6 @@ func (s *scimGroups) auditMembers(tx *storage.Connection, r *http.Request, row *
 func scimMemberIDs(members []core.Member) ([]uuid.UUID, error) {
 	ids := make([]uuid.UUID, 0, len(members))
 	for _, member := range members {
-		if member.Type != "" && !strings.EqualFold(string(member.Type), scimResourceTypeUser) {
-			return nil, scimerrors.ErrInvalidValue(`nested groups are not supported; "members.type" must be "User"`)
-		}
 		id, err := uuid.FromString(member.Value)
 		if err != nil {
 			return nil, errSCIMMemberNotFound()
