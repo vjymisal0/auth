@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"testing"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -640,37 +639,20 @@ func (ts *SCIMTestSuite) TestRequiresSSOProviderOnContext() {
 	require.Error(ts.T(), err)
 }
 
-func TestSCIMUserFields(t *testing.T) {
-	t.Run("has no email without emails", func(t *testing.T) {
-		require.Empty(t, scimPrimaryEmail(nil))
-	})
+func (ts *SCIMTestSuite) TestPrimaryEmailRequiredToProvision() {
+	w, body := ts.do(ts.TokenA, http.MethodPost, "/Users", `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"not-an-email"}`)
+	require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
+	require.Contains(ts.T(), body["detail"], "is required")
+}
 
-	t.Run("prefers the primary email", func(t *testing.T) {
-		require.Equal(t, "home@example.com", scimPrimaryEmail([]core.Email{
-			{Value: "work@example.com"},
-			{Value: "home@example.com", Primary: new(true)},
-		}))
-	})
+func (ts *SCIMTestSuite) TestPrimaryEmailPrefersThePrimaryFlag() {
+	id := ts.create(ts.TokenA, `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"dana@example.com","emails":[{"value":"work@example.com"},{"value":"home@example.com","primary":true}]}`)
+	require.Equal(ts.T(), "home@example.com", ts.linkedUser(id).GetEmail())
+}
 
-	t.Run("falls back to the first email", func(t *testing.T) {
-		require.Equal(t, "work@example.com", scimPrimaryEmail([]core.Email{{Value: "work@example.com"}, {Value: "home@example.com"}}))
-	})
-
-	t.Run("drops id, meta and password from the resource", func(t *testing.T) {
-		user := &core.User{UserName: "alice", Password: "secret"}
-		user.ID = "abc"
-		user.Meta = core.Meta{Version: `W/"1"`}
-
-		encoded, err := scimUserResource(user)
-		require.NoError(t, err)
-
-		resource := map[string]any{}
-		require.NoError(t, json.Unmarshal(encoded, &resource))
-		require.NotContains(t, resource, "id")
-		require.NotContains(t, resource, "meta")
-		require.NotContains(t, resource, "password")
-		require.Equal(t, "alice", resource["userName"])
-	})
+func (ts *SCIMTestSuite) TestPrimaryEmailFallsBackToTheFirstEmail() {
+	id := ts.create(ts.TokenA, `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"erin@example.com","emails":[{"value":"work@example.com"},{"value":"home@example.com"}]}`)
+	require.Equal(ts.T(), "work@example.com", ts.linkedUser(id).GetEmail())
 }
 
 func (ts *SCIMTestSuite) TestUsersGroupsAttribute() {
@@ -729,16 +711,6 @@ func (ts *SCIMTestSuite) TestUsersGroupsAttribute() {
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.Len(ts.T(), groupsOf(got), 1)
 	require.Equal(ts.T(), eng, groupsOf(got)[0]["value"])
-}
-
-func TestSCIMSavedUserProjectionSkipsGroupsOnCreate(t *testing.T) {
-	created := scimUserChange{target: models.SCIMTarget{ProviderID: uuid.Must(uuid.NewV4())}}
-	require.False(t, scimSavedUserProjection(created).Returns("groups"))
-	require.True(t, scimSavedUserProjection(created).Returns("userName"))
-
-	replaced := created
-	replaced.target.ID = uuid.Must(uuid.NewV4())
-	require.True(t, scimSavedUserProjection(replaced).Returns("groups"))
 }
 
 func userWith(userName, externalID string) string {

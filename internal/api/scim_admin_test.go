@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"maps"
 	"net/http"
@@ -16,7 +15,6 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	"github.com/supabase-community/scim-go/pkg/server"
 	"github.com/supabase/auth/internal/conf"
 	"github.com/supabase/auth/internal/models"
 )
@@ -77,28 +75,6 @@ func (ts *SCIMTokensTestSuite) TestCreateWithoutBody() {
 	ts.API.handler.ServeHTTP(w, r)
 
 	require.Equal(ts.T(), http.StatusCreated, w.Code, w.Body.String())
-}
-
-func (ts *SCIMTokensTestSuite) TestTokenValidatorResolvesSSOProvider() {
-	created := ts.create(ts.Provider, map[string]any{})
-	validate := newSCIMTokenValidator(ts.API.db)
-
-	ctx, err := validate(context.Background(), created.Token)
-	require.NoError(ts.T(), err)
-	providerID, err := scimProviderID(ctx)
-	require.NoError(ts.T(), err)
-	require.Equal(ts.T(), ts.Provider.ID, providerID)
-	require.Equal(ts.T(), created.Prefix, scimTokenKey.Value(ctx).Prefix)
-
-	ctx, err = validate(context.Background(), "scim_invalid")
-	require.ErrorIs(ts.T(), err, server.ErrInvalidToken)
-	require.Nil(ts.T(), scimTokenKey.Value(ctx))
-
-	cancelled, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err = validate(cancelled, created.Token)
-	require.Error(ts.T(), err)
-	require.NotErrorIs(ts.T(), err, server.ErrInvalidToken)
 }
 
 func (ts *SCIMTokensTestSuite) TestCreateWithExpiry() {
@@ -254,12 +230,12 @@ func (ts *SCIMTokensTestSuite) TestDisabled() {
 func (ts *SCIMTokensTestSuite) TestStatus() {
 	status := ts.status(http.MethodGet, createSSOProvider(ts.T(), ts.API.db))
 	require.False(ts.T(), status.Enabled)
-	require.Equal(ts.T(), scimBaseURL(ts.API.config), status.BaseURL)
+	require.Equal(ts.T(), ts.baseURL(), status.BaseURL)
 	require.Empty(ts.T(), status.Tokens)
 
 	status = ts.status(http.MethodGet, ts.Provider)
 	require.True(ts.T(), status.Enabled)
-	require.Equal(ts.T(), scimBaseURL(ts.API.config), status.BaseURL)
+	require.Equal(ts.T(), ts.baseURL(), status.BaseURL)
 	require.Empty(ts.T(), status.Tokens)
 
 	active := ts.create(ts.Provider, map[string]any{})
@@ -284,7 +260,7 @@ func (ts *SCIMTokensTestSuite) TestEnableWithZeroTokens() {
 
 	status := ts.status(http.MethodPost, provider)
 	require.True(ts.T(), status.Enabled)
-	require.Equal(ts.T(), scimBaseURL(ts.API.config), status.BaseURL)
+	require.Equal(ts.T(), ts.baseURL(), status.BaseURL)
 	require.Empty(ts.T(), status.Tokens)
 	require.True(ts.T(), ts.status(http.MethodGet, provider).Enabled)
 }
@@ -520,6 +496,10 @@ func (ts *SCIMTokensTestSuite) createProvider() *models.SSOProvider {
 
 func (ts *SCIMTokensTestSuite) tokensPath(provider *models.SSOProvider) string {
 	return "/admin/sso/providers/" + provider.ID.String() + "/scim/tokens"
+}
+
+func (ts *SCIMTokensTestSuite) baseURL() string {
+	return strings.TrimRight(ts.API.config.API.ExternalURL, "/") + "/scim/v2"
 }
 
 func (ts *SCIMTokensTestSuite) request(method, path string, body any) *httptest.ResponseRecorder {

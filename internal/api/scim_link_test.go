@@ -20,12 +20,16 @@ import (
 	"github.com/supabase/auth/internal/storage"
 )
 
+func ssoProviderType(providerID uuid.UUID) string {
+	return "sso:" + providerID.String()
+}
+
 func (ts *SCIMTestSuite) ssoUser(provider *models.SSOProvider, sub, email string) *models.User {
 	user, err := models.NewUser("", email, "", ts.API.config.JWT.Aud, nil)
 	require.NoError(ts.T(), err)
 	user.IsSSOUser = true
 	require.NoError(ts.T(), ts.API.db.Create(user))
-	identity, err := models.NewIdentity(user, scimProviderType(provider.ID), map[string]any{"sub": sub, "email": email})
+	identity, err := models.NewIdentity(user, ssoProviderType(provider.ID), map[string]any{"sub": sub, "email": email})
 	require.NoError(ts.T(), err)
 	require.NoError(ts.T(), ts.API.db.Create(identity))
 	return user
@@ -54,11 +58,11 @@ func (ts *SCIMTestSuite) TestCreateProvisionsSSOUser() {
 	require.Equal(ts.T(), ts.API.config.JWT.Aud, user.Aud)
 	require.NotNil(ts.T(), user.EmailConfirmedAt)
 	require.False(ts.T(), user.IsBanned())
-	require.Equal(ts.T(), []any{scimProviderType(ts.A.ID)}, user.AppMetaData["providers"])
+	require.Equal(ts.T(), []any{ssoProviderType(ts.A.ID)}, user.AppMetaData["providers"])
 
 	identities := ts.identities(user)
 	require.Len(ts.T(), identities, 1)
-	require.Equal(ts.T(), scimProviderType(ts.A.ID), identities[0].Provider)
+	require.Equal(ts.T(), ssoProviderType(ts.A.ID), identities[0].Provider)
 	require.Equal(ts.T(), "Alice@Example.com", identities[0].ProviderID)
 }
 
@@ -140,7 +144,7 @@ func (ts *SCIMTestSuite) requireNonSSOUserNeverLinked(sub string) {
 	password, err := models.NewUser("", "alice@example.com", "", ts.API.config.JWT.Aud, nil)
 	require.NoError(ts.T(), err)
 	require.NoError(ts.T(), ts.API.db.Create(password))
-	identity, err := models.NewIdentity(password, scimProviderType(ts.A.ID), map[string]any{"sub": sub, "email": "alice@example.com", "email_verified": true})
+	identity, err := models.NewIdentity(password, ssoProviderType(ts.A.ID), map[string]any{"sub": sub, "email": "alice@example.com", "email_verified": true})
 	require.NoError(ts.T(), err)
 	require.NoError(ts.T(), ts.API.db.Create(identity))
 
@@ -213,7 +217,7 @@ func (ts *SCIMTestSuite) TestReplaceChangesEmail() {
 	reloaded := ts.linkedUser(id)
 	require.Equal(ts.T(), "alice.smith@example.com", reloaded.GetEmail())
 	require.Equal(ts.T(), "Alice.Smith@example.com", reloaded.UserMetaData["email"])
-	identity, err := models.FindIdentityByIdAndProvider(ts.API.db, "Alice@Example.com", scimProviderType(ts.A.ID))
+	identity, err := models.FindIdentityByIdAndProvider(ts.API.db, "Alice@Example.com", ssoProviderType(ts.A.ID))
 	require.NoError(ts.T(), err)
 	require.Equal(ts.T(), "Alice.Smith@example.com", identity.IdentityData["email"])
 
@@ -283,7 +287,7 @@ func (ts *SCIMTestSuite) TestRemovingEmailsKeepsUserEmail() {
 		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 
 		require.Equal(ts.T(), "alice@example.com", ts.linkedUser(id).GetEmail(), userName)
-		identity, err := models.FindIdentityByIdAndProvider(ts.API.db, userName, scimProviderType(ts.A.ID))
+		identity, err := models.FindIdentityByIdAndProvider(ts.API.db, userName, ssoProviderType(ts.A.ID))
 		require.NoError(ts.T(), err, userName)
 		require.Equal(ts.T(), "alice@example.com", identity.IdentityData["email"], userName)
 
@@ -406,7 +410,7 @@ func (ts *SCIMTestSuite) samlLoginWith(ssoProvider *models.SSOProvider, userData
 	var user *models.User
 	err := ts.API.db.Transaction(func(tx *storage.Connection) error {
 		var terr error
-		_, user, terr = ts.API.createAccountFromExternalIdentity(tx, r, userData, scimProviderType(ssoProvider.ID), false)
+		_, user, terr = ts.API.createAccountFromExternalIdentity(tx, r, userData, ssoProviderType(ssoProvider.ID), false)
 		return terr
 	})
 	return user, err
@@ -420,7 +424,7 @@ func (ts *SCIMTestSuite) TestSAMLLoginLocksVerifiedEmailWithoutMetadataEmail() {
 	conn, err := ts.API.db.NewTransaction()
 	require.NoError(ts.T(), err)
 	tx := &storage.Connection{Connection: conn}
-	require.NoError(ts.T(), models.LockAccountLinking(tx, scimProviderType(ts.A.ID), "alice@example.com"))
+	require.NoError(ts.T(), models.LockAccountLinking(tx, ssoProviderType(ts.A.ID), "alice@example.com"))
 
 	done := make(chan error, 1)
 	go func() {
@@ -529,7 +533,7 @@ func (ts *SCIMTestSuite) TestSAMLLoginLinksDivergedNameIDToSCIMUser() {
 
 	providerIDs := []string{}
 	for _, identity := range ts.identities(linked) {
-		require.Equal(ts.T(), scimProviderType(ts.A.ID), identity.Provider)
+		require.Equal(ts.T(), ssoProviderType(ts.A.ID), identity.Provider)
 		providerIDs = append(providerIDs, identity.ProviderID)
 	}
 	require.ElementsMatch(ts.T(), []string{"Alice@Example.com", "saml-name-id"}, providerIDs)
@@ -874,7 +878,7 @@ func (ts *SCIMTestSuite) TestReplaceRenamesSSOIdentity() {
 	code, body := ts.rename(id, "alice2@example.com")
 	require.Equal(ts.T(), http.StatusOK, code, body)
 
-	identity, err := models.FindIdentityByIdAndProvider(ts.API.db, "alice2@example.com", scimProviderType(ts.A.ID))
+	identity, err := models.FindIdentityByIdAndProvider(ts.API.db, "alice2@example.com", ssoProviderType(ts.A.ID))
 	require.NoError(ts.T(), err)
 	require.Equal(ts.T(), user.ID, identity.UserID)
 	require.Equal(ts.T(), "alice2@example.com", identity.IdentityData["sub"])
@@ -934,7 +938,7 @@ func (ts *SCIMTestSuite) TestReplaceRejectsRenameToTakenIdentity() {
 	var row models.SCIMUser
 	require.NoError(ts.T(), ts.API.db.Q().Where("id = ?", id).First(&row))
 	require.Equal(ts.T(), "alice@example.com", row.UserName)
-	_, err := models.FindIdentityByIdAndProvider(ts.API.db, "Alice@Example.com", scimProviderType(ts.A.ID))
+	_, err := models.FindIdentityByIdAndProvider(ts.API.db, "Alice@Example.com", ssoProviderType(ts.A.ID))
 	require.NoError(ts.T(), err)
 }
 
@@ -963,7 +967,7 @@ func (ts *SCIMTestSuite) TestUnlinkRefusedForSCIMManagedIdentity() {
 	google, err := models.NewIdentity(user, "google", map[string]any{"sub": "google-1", "email": "alice@example.com"})
 	require.NoError(ts.T(), err)
 	require.NoError(ts.T(), ts.API.db.Create(google))
-	sso, err := models.FindIdentityByIdAndProvider(ts.API.db, "Alice@Example.com", scimProviderType(ts.A.ID))
+	sso, err := models.FindIdentityByIdAndProvider(ts.API.db, "Alice@Example.com", ssoProviderType(ts.A.ID))
 	require.NoError(ts.T(), err)
 
 	w := ts.unlink(user, sso)
@@ -973,7 +977,7 @@ func (ts *SCIMTestSuite) TestUnlinkRefusedForSCIMManagedIdentity() {
 
 	code, body := ts.rename(id, "alice2@example.com")
 	require.Equal(ts.T(), http.StatusOK, code, body)
-	sso, err = models.FindIdentityByIdAndProvider(ts.API.db, "alice2@example.com", scimProviderType(ts.A.ID))
+	sso, err = models.FindIdentityByIdAndProvider(ts.API.db, "alice2@example.com", ssoProviderType(ts.A.ID))
 	require.NoError(ts.T(), err)
 
 	w, _ = ts.do(ts.TokenA, http.MethodDelete, "/Users/"+id, "")
@@ -990,7 +994,7 @@ func (ts *SCIMTestSuite) TestUnlinkAllowedWhileSCIMFlagOff() {
 	google, err := models.NewIdentity(user, "google", map[string]any{"sub": "google-1", "email": "alice@example.com"})
 	require.NoError(ts.T(), err)
 	require.NoError(ts.T(), ts.API.db.Create(google))
-	sso, err := models.FindIdentityByIdAndProvider(ts.API.db, "Alice@Example.com", scimProviderType(ts.A.ID))
+	sso, err := models.FindIdentityByIdAndProvider(ts.API.db, "Alice@Example.com", ssoProviderType(ts.A.ID))
 	require.NoError(ts.T(), err)
 	ts.API.config.SSO.SCIM.Enabled = false
 	defer func() { ts.API.config.SSO.SCIM.Enabled = true }()
@@ -1003,7 +1007,7 @@ func (ts *SCIMTestSuite) TestUnlinkAllowedWhileSCIMFlagOff() {
 func (ts *SCIMTestSuite) TestRenameSkippedWhenIdentityMissing() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
-	sso, err := models.FindIdentityByIdAndProvider(ts.API.db, "Alice@Example.com", scimProviderType(ts.A.ID))
+	sso, err := models.FindIdentityByIdAndProvider(ts.API.db, "Alice@Example.com", ssoProviderType(ts.A.ID))
 	require.NoError(ts.T(), err)
 	require.NoError(ts.T(), ts.API.db.Destroy(sso))
 	hook := logrustest.NewGlobal()

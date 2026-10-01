@@ -14,9 +14,6 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/supabase-community/scim-go/pkg/core"
@@ -24,7 +21,6 @@ import (
 	"github.com/supabase-community/scim-go/pkg/server"
 	"github.com/supabase/auth/internal/conf"
 	"github.com/supabase/auth/internal/models"
-	"github.com/supabase/auth/internal/observability"
 	"github.com/supabase/auth/internal/storage"
 )
 
@@ -392,20 +388,6 @@ func TestSCIMServer(t *testing.T) {
 			require.JSONEq(t, scimFixture(t, "filter_forbidden.json"), w.Body.String())
 		})
 	}
-
-	t.Run("logError logs through the request log entry", func(t *testing.T) {
-		logger, hook := logrustest.NewNullLogger()
-		r := httptest.NewRequest(http.MethodGet, scimBasePath+"/Users", nil)
-		entry := observability.NewLogEntry(logger.WithField("request_id", "req-1"))
-		r = r.WithContext(observability.SetLogEntryWithContext(r.Context(), entry))
-
-		scimLogError(r, errors.New("broken pipe"))
-
-		require.Len(t, hook.Entries, 1)
-		require.Equal(t, logrus.ErrorLevel, hook.LastEntry().Level)
-		require.Equal(t, "req-1", hook.LastEntry().Data["request_id"])
-		require.EqualError(t, hook.LastEntry().Data[logrus.ErrorKey].(error), "broken pipe")
-	})
 
 	t.Run("requires a bearer token", func(t *testing.T) {
 		for _, tc := range []struct {

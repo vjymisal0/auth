@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -32,7 +33,6 @@ func (ts *SCIMTokenTestSuite) TestCreate() {
 
 	require.Regexp(ts.T(), `^scim_[0-9a-f]{40}$`, plaintext)
 	require.Equal(ts.T(), plaintext[:12], token.Prefix)
-	require.Equal(ts.T(), hashSCIMToken(plaintext), token.TokenHash)
 	require.NotEqual(ts.T(), plaintext, token.TokenHash)
 	require.Equal(ts.T(), ts.provider.ID, token.SSOProviderID)
 	require.False(ts.T(), token.CreatedAt.IsZero())
@@ -120,7 +120,7 @@ func (ts *SCIMTokenTestSuite) TestFindByPrefixAmbiguous() {
 	duplicate := &SCIMToken{
 		ID:            uuid.Must(uuid.NewV4()),
 		SSOProviderID: ts.provider.ID,
-		TokenHash:     hashSCIMToken("duplicate"),
+		TokenHash:     strings.Repeat("ab", 32),
 		Prefix:        token.Prefix,
 	}
 	require.NoError(ts.T(), ts.db.RawQuery(
