@@ -311,8 +311,11 @@ func (a *API) createAccountFromExternalIdentity(tx *storage.Connection, r *http.
 		identityData = structs.Map(userData.Metadata)
 	}
 
-	id, isSSO := strings.CutPrefix(providerType, "sso:")
+	ssoProviderID, isSSO, perr := models.SSOProviderID(providerType)
 	scimOn := isSSO && config.SSO.SCIM.Enabled
+	if scimOn && perr != nil {
+		return 0, nil, apierrors.NewInternalServerError("Invalid SSO provider id in provider type").WithInternalError(perr)
+	}
 
 	if scimOn && userData.Metadata.Email != "" {
 		if terr := models.LockAccountLinking(tx, providerType, userData.Metadata.Email); terr != nil {
@@ -323,13 +326,6 @@ func (a *API) createAccountFromExternalIdentity(tx *storage.Connection, r *http.
 	decision, terr := models.DetermineAccountLinking(tx, config, userData.Emails, aud, providerType, userData.Metadata.Subject)
 	if terr != nil {
 		return 0, nil, terr
-	}
-
-	var ssoProviderID uuid.UUID
-	if scimOn {
-		if ssoProviderID, terr = uuid.FromString(id); terr != nil {
-			return 0, nil, apierrors.NewInternalServerError("Invalid SSO provider id in provider type").WithInternalError(terr)
-		}
 	}
 
 	switch decision.Decision {

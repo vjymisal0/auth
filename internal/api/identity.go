@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"net/http"
-	"strings"
 
 	"github.com/fatih/structs"
 	"github.com/go-chi/chi/v5"
@@ -55,18 +54,16 @@ func (a *API) DeleteIdentity(w http.ResponseWriter, r *http.Request) error {
 	provider := identityToBeDeleted.Provider
 	recipientEmail := user.GetEmail()
 	err = db.Transaction(func(tx *storage.Connection) error {
-		if id, ok := strings.CutPrefix(identityToBeDeleted.Provider, "sso:"); ok && a.config.SSO.SCIM.Enabled {
-			if providerID, perr := uuid.FromString(id); perr == nil {
-				if terr := models.LockUserForSCIM(tx, user.ID); terr != nil {
-					return apierrors.NewInternalServerError("Database error locking user").WithInternalError(terr)
-				}
-				managed, terr := models.IsSCIMManaged(tx, providerID, user.ID)
-				if terr != nil {
-					return apierrors.NewInternalServerError("Database error finding SCIM user").WithInternalError(terr)
-				}
-				if managed {
-					return apierrors.NewUnprocessableEntityError(apierrors.ErrorCodeUserSSOManaged, "Identity is managed by SCIM provisioning")
-				}
+		if providerID, ok, perr := identityToBeDeleted.SSOProviderID(); ok && perr == nil && a.config.SSO.SCIM.Enabled {
+			if terr := models.LockUserForSCIM(tx, user.ID); terr != nil {
+				return apierrors.NewInternalServerError("Database error locking user").WithInternalError(terr)
+			}
+			managed, terr := models.IsSCIMManaged(tx, providerID, user.ID)
+			if terr != nil {
+				return apierrors.NewInternalServerError("Database error finding SCIM user").WithInternalError(terr)
+			}
+			if managed {
+				return apierrors.NewUnprocessableEntityError(apierrors.ErrorCodeUserSSOManaged, "Identity is managed by SCIM provisioning")
 			}
 		}
 		if terr := models.NewAuditLogEntry(config.AuditLog, r, tx, user, models.IdentityUnlinkAction, utilities.GetIPAddress(r), map[string]any{
