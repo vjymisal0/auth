@@ -15,6 +15,7 @@ import (
 	"github.com/supabase-community/scim-go/pkg/protocol"
 	"github.com/supabase/auth/internal/api/apierrors"
 	"github.com/supabase/auth/internal/api/provider"
+	"github.com/supabase/auth/internal/conf"
 	"github.com/supabase/auth/internal/models"
 	"github.com/supabase/auth/internal/storage"
 )
@@ -91,6 +92,91 @@ func (ts *SCIMUsersTestSuite) TestCreateLinksByEmailWithinProvider() {
 
 	require.Equal(ts.T(), existing.ID, user.ID)
 	require.Len(ts.T(), ts.identities(user), 2)
+}
+
+func (ts *SCIMUsersTestSuite) passkeyRegistrationOptions(user *models.User) int {
+	passkey, webauthn := ts.API.config.Passkey, ts.API.config.WebAuthn
+	defer func() { ts.API.config.Passkey, ts.API.config.WebAuthn = passkey, webauthn }()
+	ts.API.config.Passkey.Enabled = true
+	ts.API.config.WebAuthn = conf.WebAuthnConfiguration{
+		RPID:                    "localhost",
+		RPDisplayName:           "Test App",
+		RPOrigins:               []string{"http://localhost:3000"},
+		ChallengeExpiryDuration: 5 * time.Minute,
+	}
+
+	session, err := models.NewSession(user.ID, nil)
+	require.NoError(ts.T(), err)
+	require.NoError(ts.T(), ts.API.db.Create(session))
+	token, _, err := ts.API.generateAccessToken(httptest.NewRequest(http.MethodPost, "/passkeys", nil), ts.API.db, user, &session.ID, models.PasswordGrant)
+	require.NoError(ts.T(), err)
+
+	r := httptest.NewRequest(http.MethodPost, "/passkeys/registration/options", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	ts.API.handler.ServeHTTP(w, r)
+	return w.Code
+}
+
+func (ts *SCIMUsersTestSuite) TestPasswordUserWithSameEmailIsNeverLinked() {
+	password, err := models.NewUser("", "alice@example.com", "", ts.API.config.JWT.Aud, nil)
+	require.NoError(ts.T(), err)
+	require.NoError(ts.T(), ts.API.db.Create(password))
+
+	user := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
+
+	require.NotEqual(ts.T(), password.ID, user.ID)
+	require.True(ts.T(), user.IsSSOUser)
+	require.Equal(ts.T(), http.StatusUnprocessableEntity, ts.passkeyRegistrationOptions(user))
+	reloaded, err := models.FindUserByID(ts.API.db, password.ID)
+	require.NoError(ts.T(), err)
+	require.False(ts.T(), reloaded.IsSSOUser)
+	require.Len(ts.T(), ts.identities(reloaded), 0)
+}
+
+func (ts *SCIMUsersTestSuite) TestLinkAccountKeepsUserSSO() {
+	password, err := models.NewUser("", "alice@example.com", "", ts.API.config.JWT.Aud, nil)
+	require.NoError(ts.T(), err)
+	require.NoError(ts.T(), ts.API.db.Create(password))
+	existing := ts.ssoUser(ts.A, "saml-name-id", "alice@example.com")
+
+	user := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
+
+	require.Equal(ts.T(), existing.ID, user.ID)
+	require.Len(ts.T(), ts.identities(user), 2)
+	require.True(ts.T(), user.IsSSOUser)
+	require.Equal(ts.T(), http.StatusUnprocessableEntity, ts.passkeyRegistrationOptions(user))
+	require.Len(ts.T(), ts.identities(password), 0)
+}
+
+func (ts *SCIMUsersTestSuite) TestOldEmailCannotSignInAfterEmailChange() {
+	id := ts.create(ts.TokenA, oktaUser)
+	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, strings.Replace(oktaUser, `"value": "alice@example.com"`, `"value": "alice.smith@example.com"`, 1))
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+	user := ts.linkedUser(id)
+	require.Equal(ts.T(), "alice@example.com", user.GetEmail())
+
+	for _, req := range []struct{ path, body string }{
+		{"/recover", `{"email":"alice@example.com"}`},
+		{"/otp", `{"email":"alice@example.com","create_user":false}`},
+		{"/magiclink", `{"email":"alice@example.com"}`},
+		{"/token?grant_type=password", `{"email":"alice@example.com","password":"hunter2hunter2"}`},
+	} {
+		r := httptest.NewRequest(http.MethodPost, req.path, strings.NewReader(req.body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		ts.API.handler.ServeHTTP(w, r)
+		require.NotContains(ts.T(), w.Body.String(), "access_token", req.path)
+
+		reloaded := ts.linkedUser(id)
+		require.Nil(ts.T(), reloaded.RecoverySentAt, req.path)
+		require.Empty(ts.T(), reloaded.RecoveryToken, req.path)
+		require.Empty(ts.T(), reloaded.ConfirmationToken, req.path)
+		count, err := ts.API.db.Q().Where("user_id = ?", user.ID).Count(&models.OneTimeToken{})
+		require.NoError(ts.T(), err)
+		require.Zero(ts.T(), count, req.path)
+		require.Zero(ts.T(), ts.sessions(user), req.path)
+	}
 }
 
 func (ts *SCIMUsersTestSuite) TestCreateInactiveLogsOutWithoutBanning() {
