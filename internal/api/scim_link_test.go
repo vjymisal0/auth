@@ -179,6 +179,25 @@ func (ts *SCIMUsersTestSuite) TestOldEmailCannotSignInAfterEmailChange() {
 	}
 }
 
+func (ts *SCIMUsersTestSuite) TestRemovingEmailsKeepsUserEmail() {
+	id := ts.create(ts.TokenA, strings.Replace(oktaUser, `"userName": "Alice@Example.com"`, `"userName": "alice.smith"`, 1))
+	user := ts.linkedUser(id)
+
+	for _, userName := range []string{"alice.smith", "asmith"} {
+		w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"`+userName+`","active":true}`)
+		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+
+		require.Equal(ts.T(), "alice@example.com", ts.linkedUser(id).GetEmail(), userName)
+		identity, err := models.FindIdentityByIdAndProvider(ts.API.db, userName, "sso:"+ts.A.ID.String())
+		require.NoError(ts.T(), err, userName)
+		require.Equal(ts.T(), "alice@example.com", identity.IdentityData["email"], userName)
+
+		signedIn, err := ts.samlLogin(ts.A, "saml-name-id-"+userName, "alice@example.com")
+		require.NoError(ts.T(), err, userName)
+		require.Equal(ts.T(), user.ID, signedIn.ID, userName)
+	}
+}
+
 func (ts *SCIMUsersTestSuite) TestCreateInactiveLogsOutWithoutBanning() {
 	existing := ts.ssoUser(ts.A, "Alice@Example.com", "alice@example.com")
 	ts.session(existing)
