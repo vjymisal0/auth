@@ -126,14 +126,14 @@ func (ts *SCIMTokensTestSuite) TestTokenValidatorResolvesSSOProvider() {
 
 	ctx, err := validate(context.Background(), created.Token)
 	require.NoError(ts.T(), err)
-	providerID, ok := scimSSOProviderIDKey.Lookup(ctx)
-	require.True(ts.T(), ok)
+	providerID, err := scimProviderID(ctx)
+	require.NoError(ts.T(), err)
 	require.Equal(ts.T(), ts.Provider.ID, providerID)
+	require.Equal(ts.T(), created.Prefix, scimTokenKey.Value(ctx).Prefix)
 
 	ctx, err = validate(context.Background(), "scim_invalid")
 	require.ErrorIs(ts.T(), err, server.ErrInvalidToken)
-	_, ok = scimSSOProviderIDKey.Lookup(ctx)
-	require.False(ts.T(), ok)
+	require.Nil(ts.T(), scimTokenKey.Value(ctx))
 
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()

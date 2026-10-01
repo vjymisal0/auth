@@ -103,8 +103,7 @@ func newSCIMTokenValidator(db *storage.Connection) server.TokenValidator {
 		if err != nil {
 			return ctx, err
 		}
-		ctx = scimTokenPrefixKey.WithValue(ctx, token.Prefix)
-		return scimSSOProviderIDKey.WithValue(ctx, token.SSOProviderID), nil
+		return scimTokenKey.WithValue(ctx, token), nil
 	}
 }
 
@@ -153,8 +152,8 @@ func (a *API) limitSCIMInvalidToken(validate server.TokenValidator, lmt *limiter
 func (a *API) limitSCIMProvider(lmt *limiter.Limiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			providerID, ok := scimSSOProviderIDKey.Lookup(r.Context())
-			if !ok {
+			providerID, err := scimProviderID(r.Context())
+			if err != nil {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -225,11 +224,11 @@ func scimTarget(ctx context.Context, id, version string) (providerID, resourceID
 }
 
 func scimProviderID(ctx context.Context) (uuid.UUID, error) {
-	providerID, ok := scimSSOProviderIDKey.Lookup(ctx)
-	if !ok || providerID == uuid.Nil {
+	token := scimTokenKey.Value(ctx)
+	if token == nil || token.SSOProviderID == uuid.Nil {
 		return uuid.Nil, errMissingSSOProvider
 	}
-	return providerID, nil
+	return token.SSOProviderID, nil
 }
 
 func scimRequest(ctx context.Context) (*http.Request, error) {
@@ -311,7 +310,11 @@ func errSCIMTooManyRequests() error {
 }
 
 func scimActor(r *http.Request) *models.User {
-	return &models.User{Email: storage.NullString("scim:" + scimTokenPrefixKey.Value(r.Context()))}
+	prefix := ""
+	if token := scimTokenKey.Value(r.Context()); token != nil {
+		prefix = token.Prefix
+	}
+	return &models.User{Email: storage.NullString("scim:" + prefix)}
 }
 
 func (a *API) auditSCIM(tx *storage.Connection, r *http.Request, actor *models.User, action models.AuditAction, providerID uuid.UUID, traits map[string]any) error {
