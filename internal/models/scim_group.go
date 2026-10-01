@@ -84,7 +84,7 @@ func ReplaceSCIMGroupIfChanged(tx *storage.Connection, target SCIMTarget, resour
 func TouchSCIMGroup(tx *storage.Connection, group *SCIMGroup) (*SCIMGroup, error) {
 	touched := &SCIMGroup{}
 	if err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET updated_at = now() WHERE id = ? RETURNING "+scimGroupColumns, scimGroupsTable.tableName),
+		fmt.Sprintf("UPDATE %q SET updated_at = clock_timestamp() WHERE id = ? RETURNING "+scimGroupColumns, scimGroupsTable.tableName),
 		group.ID,
 	).First(touched); err != nil {
 		return nil, errors.Wrap(err, "error updating SCIM group")
@@ -191,7 +191,7 @@ func RemoveSCIMUserFromGroups(tx *storage.Connection, scimUserID uuid.UUID) ([]u
 	}
 	if len(groupIDs) > 0 {
 		if err := tx.RawQuery(
-			fmt.Sprintf("UPDATE %q SET updated_at = now() WHERE id = ANY(?::uuid[])", groups),
+			fmt.Sprintf("UPDATE %q SET updated_at = clock_timestamp() WHERE id = ANY(?::uuid[])", groups),
 			groupIDs,
 		).Exec(); err != nil {
 			return nil, errors.Wrap(err, "error updating SCIM groups")

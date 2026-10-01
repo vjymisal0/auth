@@ -143,7 +143,7 @@ func replaceSCIMRowIfChanged[T any](tx *storage.Connection, table scimTable, tar
 func replaceSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarget, resource []byte) (*T, error) {
 	row := new(T)
 	if err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET resource = ?::jsonb, updated_at = now() WHERE %s AND "+scimVersionClause+" RETURNING %s", table.tableName, table.targetClause(), table.columns),
+		fmt.Sprintf("UPDATE %q SET resource = ?::jsonb, updated_at = clock_timestamp() WHERE %s AND "+scimVersionClause+" RETURNING %s", table.tableName, table.targetClause(), table.columns),
 		string(resource), target.ID, target.ProviderID, target.UpdatedAt, target.UpdatedAt,
 	).First(row); err != nil {
 		return nil, table.writeError(tx, target, err, "replacing")

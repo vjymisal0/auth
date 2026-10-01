@@ -82,7 +82,7 @@ func ReplaceSCIMUser(tx *storage.Connection, target SCIMTarget, resource []byte)
 func DeleteSCIMUser(tx *storage.Connection, target SCIMTarget) (*SCIMUser, error) {
 	user := &SCIMUser{}
 	err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET deleted_at = now(), updated_at = now() WHERE %s AND "+scimVersionClause+" RETURNING %s", scimUsersTable.tableName, scimUsersTable.targetClause(), scimUsersTable.columns),
+		fmt.Sprintf("UPDATE %q SET deleted_at = now(), updated_at = clock_timestamp() WHERE %s AND "+scimVersionClause+" RETURNING %s", scimUsersTable.tableName, scimUsersTable.targetClause(), scimUsersTable.columns),
 		target.ID, target.ProviderID, target.UpdatedAt, target.UpdatedAt,
 	).First(user)
 	if err != nil {
@@ -132,7 +132,7 @@ func LogoutUserForSCIM(tx *storage.Connection, userID uuid.UUID) error {
 func SoftDeleteSCIMUsersByUserID(tx *storage.Connection, userID uuid.UUID) ([]SCIMUser, error) {
 	rows := []SCIMUser{}
 	if err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET deleted_at = now(), updated_at = now() WHERE user_id = ? AND deleted_at IS NULL RETURNING "+scimUserColumns, scimUsersTable.tableName),
+		fmt.Sprintf("UPDATE %q SET deleted_at = now(), updated_at = clock_timestamp() WHERE user_id = ? AND deleted_at IS NULL RETURNING "+scimUserColumns, scimUsersTable.tableName),
 		userID,
 	).All(&rows); err != nil {
 		return nil, errors.Wrap(err, "error deleting SCIM users by user id")

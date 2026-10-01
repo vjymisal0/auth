@@ -107,6 +107,19 @@ func (ts *SCIMGroupTestSuite) TestReplaceChecksVersion() {
 	require.ErrorIs(ts.T(), err, SCIMGroupNotFoundError{})
 }
 
+func (ts *SCIMGroupTestSuite) TestEachWriteInATransactionGetsANewVersion() {
+	group := ts.createGroup(ts.provider.ID, "Engineering")
+
+	require.NoError(ts.T(), ts.db.Transaction(func(tx *storage.Connection) error {
+		replaced, err := ReplaceSCIMGroup(tx, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID}, []byte(`{"displayName":"Platform"}`))
+		require.NoError(ts.T(), err)
+		touched, err := TouchSCIMGroup(tx, replaced)
+		require.NoError(ts.T(), err)
+		require.True(ts.T(), touched.UpdatedAt.After(replaced.UpdatedAt))
+		return nil
+	}))
+}
+
 func (ts *SCIMGroupTestSuite) TestDeleteRemovesMembers() {
 	group := ts.createGroup(ts.provider.ID, "Engineering")
 	user := ts.createUser(ts.provider.ID, "alice")
