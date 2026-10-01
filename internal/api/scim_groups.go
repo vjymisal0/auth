@@ -38,16 +38,16 @@ func (s *scimGroupRepository) List(ctx context.Context, query *protocol.SearchRe
 }
 
 func (s *scimGroupRepository) Get(ctx context.Context, id string) (*core.Group, error) {
-	providerID, resourceID, _, err := scimTarget(ctx, id, "")
+	target, err := scimTarget(ctx, id, "")
 	if err != nil {
 		return nil, err
 	}
 	db := s.api.db.WithContext(ctx)
-	row, err := models.FindSCIMGroup(db, providerID, resourceID)
+	row, err := models.FindSCIMGroup(db, target.ProviderID, target.ID)
 	if err != nil {
 		return nil, scimError(err)
 	}
-	return s.renderOne(db, providerID, row, protocol.ProjectionFrom(ctx))
+	return s.renderOne(db, target.ProviderID, row, protocol.ProjectionFrom(ctx))
 }
 
 func (s *scimGroupRepository) Create(ctx context.Context, group *core.Group) (*core.Group, error) {
@@ -62,22 +62,22 @@ func (s *scimGroupRepository) Create(ctx context.Context, group *core.Group) (*c
 }
 
 func (s *scimGroupRepository) Replace(ctx context.Context, group *core.Group) (*core.Group, error) {
-	providerID, id, updatedAt, err := scimTarget(ctx, group.ID, group.Meta.Version)
+	target, err := scimTarget(ctx, group.ID, group.Meta.Version)
 	if err != nil {
 		return nil, err
 	}
-	return s.save(ctx, providerID, models.SCIMGroupUpdatedAction, group, func(tx *storage.Connection, resource []byte) (*models.SCIMGroup, bool, error) {
-		unchanged, err := models.FindUnchangedSCIMGroup(tx, providerID, id, resource, updatedAt)
+	return s.save(ctx, target.ProviderID, models.SCIMGroupUpdatedAction, group, func(tx *storage.Connection, resource []byte) (*models.SCIMGroup, bool, error) {
+		unchanged, err := models.FindUnchangedSCIMGroup(tx, target, resource)
 		if err != nil || unchanged != nil {
 			return unchanged, false, err
 		}
-		row, err := models.ReplaceSCIMGroup(tx, providerID, id, resource, updatedAt)
+		row, err := models.ReplaceSCIMGroup(tx, target, resource)
 		return row, true, err
 	})
 }
 
 func (s *scimGroupRepository) Delete(ctx context.Context, id, version string) error {
-	providerID, resourceID, updatedAt, err := scimTarget(ctx, id, version)
+	target, err := scimTarget(ctx, id, version)
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func (s *scimGroupRepository) Delete(ctx context.Context, id, version string) er
 		return err
 	}
 	return scimError(s.api.db.WithContext(ctx).Transaction(func(tx *storage.Connection) error {
-		row, err := models.FindSCIMGroupForUpdate(tx, providerID, resourceID)
+		row, err := models.FindSCIMGroupForUpdate(tx, target.ProviderID, target.ID)
 		if err != nil {
 			return err
 		}
@@ -94,7 +94,7 @@ func (s *scimGroupRepository) Delete(ctx context.Context, id, version string) er
 		if err != nil {
 			return err
 		}
-		if row, err = models.DeleteSCIMGroup(tx, providerID, resourceID, updatedAt); err != nil {
+		if row, err = models.DeleteSCIMGroup(tx, target); err != nil {
 			return err
 		}
 		if err := s.auditMembers(tx, r, row, nil, removed); err != nil {

@@ -39,6 +39,12 @@ type SCIMQuery struct {
 	Limit  int
 }
 
+type SCIMTarget struct {
+	ProviderID uuid.UUID
+	ID         uuid.UUID
+	UpdatedAt  *time.Time
+}
+
 type scimTable struct {
 	name     string
 	label    string
@@ -80,30 +86,26 @@ func createSCIMRow[T any](tx *storage.Connection, table scimTable, providerID uu
 	return row, nil
 }
 
-func findSCIMRow[T any](tx *storage.Connection, table scimTable, providerID, id uuid.UUID, lock string) (*T, error) {
-	where := "id = ? AND sso_provider_id = ?"
-	if table.live != "" {
-		where += " AND " + table.live
+func findSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarget, forUpdate bool) (*T, error) {
+	lock := ""
+	if forUpdate {
+		lock = " FOR UPDATE"
 	}
 	row := new(T)
 	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT %s FROM %q WHERE %s%s", table.columns, table.name, where, lock),
-		id, providerID,
+		fmt.Sprintf("SELECT %s FROM %q WHERE %s%s", table.columns, table.name, table.targetClause(), lock),
+		target.ID, target.ProviderID,
 	).First(row); err != nil {
 		return nil, table.error(err, "finding")
 	}
 	return row, nil
 }
 
-func findUnchangedSCIMRow[T any](tx *storage.Connection, table scimTable, providerID, id uuid.UUID, resource []byte, updatedAt *time.Time) (*T, error) {
-	where := "id = ? AND sso_provider_id = ? AND resource = ?::jsonb AND (?::timestamptz IS NULL OR updated_at = ?)"
-	if table.live != "" {
-		where += " AND " + table.live
-	}
+func findUnchangedSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarget, resource []byte) (*T, error) {
 	row := new(T)
 	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT %s FROM %q WHERE %s FOR UPDATE", table.columns, table.name, where),
-		id, providerID, string(resource), updatedAt, updatedAt,
+		fmt.Sprintf("SELECT %s FROM %q WHERE %s AND resource = ?::jsonb AND (?::timestamptz IS NULL OR updated_at = ?) FOR UPDATE", table.columns, table.name, table.targetClause()),
+		target.ID, target.ProviderID, string(resource), target.UpdatedAt, target.UpdatedAt,
 	).First(row); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -113,14 +115,15 @@ func findUnchangedSCIMRow[T any](tx *storage.Connection, table scimTable, provid
 	return row, nil
 }
 
-func scimWriteError[T any](tx *storage.Connection, table scimTable, err error, providerID, id uuid.UUID, updatedAt *time.Time, verb string) error {
-	if errors.Is(err, sql.ErrNoRows) && updatedAt != nil {
-		if _, findErr := findSCIMRow[T](tx, table, providerID, id, ""); findErr != nil {
-			return findErr
-		}
-		return table.stale
+func replaceSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarget, resource []byte) (*T, error) {
+	row := new(T)
+	if err := tx.RawQuery(
+		fmt.Sprintf("UPDATE %q SET resource = ?::jsonb, updated_at = now() WHERE %s AND (?::timestamptz IS NULL OR updated_at = ?) RETURNING %s", table.name, table.targetClause(), table.columns),
+		string(resource), target.ID, target.ProviderID, target.UpdatedAt, target.UpdatedAt,
+	).First(row); err != nil {
+		return nil, table.writeError(tx, target, err, "replacing")
 	}
-	return table.error(err, verb)
+	return row, nil
 }
 
 func (t scimTable) where(providerID uuid.UUID, filter SCIMFilter) (string, []any) {
@@ -138,6 +141,40 @@ func (t scimTable) where(providerID uuid.UUID, filter SCIMFilter) (string, []any
 		args = append(args, *filter.ExternalID)
 	}
 	return strings.Join(clauses, " AND "), args
+}
+
+func (t scimTable) targetClause() string {
+	if t.live == "" {
+		return "id = ? AND sso_provider_id = ?"
+	}
+	return "id = ? AND sso_provider_id = ? AND " + t.live
+}
+
+func (t scimTable) exists(tx *storage.Connection, target SCIMTarget) (bool, error) {
+	result := struct {
+		Exists bool `db:"exists"`
+	}{}
+	if err := tx.RawQuery(
+		fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %q WHERE %s) AS exists", t.name, t.targetClause()),
+		target.ID, target.ProviderID,
+	).First(&result); err != nil {
+		return false, errors.Wrapf(err, "error finding %s", t.label)
+	}
+	return result.Exists, nil
+}
+
+func (t scimTable) writeError(tx *storage.Connection, target SCIMTarget, err error, verb string) error {
+	if !errors.Is(err, sql.ErrNoRows) || target.UpdatedAt == nil {
+		return t.error(err, verb)
+	}
+	exists, findErr := t.exists(tx, target)
+	if findErr != nil {
+		return findErr
+	}
+	if !exists {
+		return t.notFound
+	}
+	return t.stale
 }
 
 func (t scimTable) orderBy(order SCIMOrder) string {

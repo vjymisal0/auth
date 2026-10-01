@@ -45,41 +45,33 @@ func CreateSCIMUser(tx *storage.Connection, providerID uuid.UUID, resource []byt
 }
 
 func FindSCIMUser(tx *storage.Connection, providerID, id uuid.UUID) (*SCIMUser, error) {
-	return findSCIMRow[SCIMUser](tx, scimUsersTable, providerID, id, "")
+	return findSCIMRow[SCIMUser](tx, scimUsersTable, SCIMTarget{ProviderID: providerID, ID: id}, false)
 }
 
 func FindSCIMUserForUpdate(tx *storage.Connection, providerID, id uuid.UUID) (*SCIMUser, error) {
-	return findSCIMRow[SCIMUser](tx, scimUsersTable, providerID, id, " FOR UPDATE")
+	return findSCIMRow[SCIMUser](tx, scimUsersTable, SCIMTarget{ProviderID: providerID, ID: id}, true)
 }
 
-func FindUnchangedSCIMUser(tx *storage.Connection, providerID, id uuid.UUID, resource []byte, updatedAt *time.Time) (*SCIMUser, error) {
-	return findUnchangedSCIMRow[SCIMUser](tx, scimUsersTable, providerID, id, resource, updatedAt)
+func FindUnchangedSCIMUser(tx *storage.Connection, target SCIMTarget, resource []byte) (*SCIMUser, error) {
+	return findUnchangedSCIMRow[SCIMUser](tx, scimUsersTable, target, resource)
 }
 
 func FindSCIMUsers(tx *storage.Connection, providerID uuid.UUID, query SCIMQuery) ([]SCIMUser, int, error) {
 	return findSCIMPage[SCIMUser](tx, scimUsersTable, providerID, query)
 }
 
-func ReplaceSCIMUser(tx *storage.Connection, providerID, id uuid.UUID, resource []byte, updatedAt *time.Time) (*SCIMUser, error) {
-	user := &SCIMUser{}
-	err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET resource = ?::jsonb, updated_at = now() WHERE id = ? AND sso_provider_id = ? AND deleted_at IS NULL AND (?::timestamptz IS NULL OR updated_at = ?) RETURNING "+scimUserColumns, user.TableName()),
-		string(resource), id, providerID, updatedAt, updatedAt,
-	).First(user)
-	if err != nil {
-		return nil, scimWriteError[SCIMUser](tx, scimUsersTable, err, providerID, id, updatedAt, "replacing")
-	}
-	return user, nil
+func ReplaceSCIMUser(tx *storage.Connection, target SCIMTarget, resource []byte) (*SCIMUser, error) {
+	return replaceSCIMRow[SCIMUser](tx, scimUsersTable, target, resource)
 }
 
-func DeleteSCIMUser(tx *storage.Connection, providerID, id uuid.UUID, updatedAt *time.Time) (*SCIMUser, error) {
+func DeleteSCIMUser(tx *storage.Connection, target SCIMTarget) (*SCIMUser, error) {
 	user := &SCIMUser{}
 	err := tx.RawQuery(
 		fmt.Sprintf("UPDATE %q SET deleted_at = now(), updated_at = now() WHERE id = ? AND sso_provider_id = ? AND deleted_at IS NULL AND (?::timestamptz IS NULL OR updated_at = ?) RETURNING "+scimUserColumns, user.TableName()),
-		id, providerID, updatedAt, updatedAt,
+		target.ID, target.ProviderID, target.UpdatedAt, target.UpdatedAt,
 	).First(user)
 	if err != nil {
-		return nil, scimWriteError[SCIMUser](tx, scimUsersTable, err, providerID, id, updatedAt, "deleting")
+		return nil, scimUsersTable.writeError(tx, target, err, "deleting")
 	}
 	return user, nil
 }

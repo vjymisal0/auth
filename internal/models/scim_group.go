@@ -56,31 +56,23 @@ func CreateSCIMGroup(tx *storage.Connection, providerID uuid.UUID, resource []by
 }
 
 func FindSCIMGroup(tx *storage.Connection, providerID, id uuid.UUID) (*SCIMGroup, error) {
-	return findSCIMRow[SCIMGroup](tx, scimGroupsTable, providerID, id, "")
+	return findSCIMRow[SCIMGroup](tx, scimGroupsTable, SCIMTarget{ProviderID: providerID, ID: id}, false)
 }
 
 func FindSCIMGroupForUpdate(tx *storage.Connection, providerID, id uuid.UUID) (*SCIMGroup, error) {
-	return findSCIMRow[SCIMGroup](tx, scimGroupsTable, providerID, id, " FOR UPDATE")
+	return findSCIMRow[SCIMGroup](tx, scimGroupsTable, SCIMTarget{ProviderID: providerID, ID: id}, true)
 }
 
 func FindSCIMGroups(tx *storage.Connection, providerID uuid.UUID, query SCIMQuery) ([]SCIMGroup, int, error) {
 	return findSCIMPage[SCIMGroup](tx, scimGroupsTable, providerID, query)
 }
 
-func ReplaceSCIMGroup(tx *storage.Connection, providerID, id uuid.UUID, resource []byte, updatedAt *time.Time) (*SCIMGroup, error) {
-	group := &SCIMGroup{}
-	err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET resource = ?::jsonb, updated_at = now() WHERE id = ? AND sso_provider_id = ? AND (?::timestamptz IS NULL OR updated_at = ?) RETURNING "+scimGroupColumns, group.TableName()),
-		string(resource), id, providerID, updatedAt, updatedAt,
-	).First(group)
-	if err != nil {
-		return nil, scimWriteError[SCIMGroup](tx, scimGroupsTable, err, providerID, id, updatedAt, "replacing")
-	}
-	return group, nil
+func ReplaceSCIMGroup(tx *storage.Connection, target SCIMTarget, resource []byte) (*SCIMGroup, error) {
+	return replaceSCIMRow[SCIMGroup](tx, scimGroupsTable, target, resource)
 }
 
-func FindUnchangedSCIMGroup(tx *storage.Connection, providerID, id uuid.UUID, resource []byte, updatedAt *time.Time) (*SCIMGroup, error) {
-	return findUnchangedSCIMRow[SCIMGroup](tx, scimGroupsTable, providerID, id, resource, updatedAt)
+func FindUnchangedSCIMGroup(tx *storage.Connection, target SCIMTarget, resource []byte) (*SCIMGroup, error) {
+	return findUnchangedSCIMRow[SCIMGroup](tx, scimGroupsTable, target, resource)
 }
 
 func TouchSCIMGroup(tx *storage.Connection, group *SCIMGroup) (*SCIMGroup, error) {
@@ -94,14 +86,14 @@ func TouchSCIMGroup(tx *storage.Connection, group *SCIMGroup) (*SCIMGroup, error
 	return touched, nil
 }
 
-func DeleteSCIMGroup(tx *storage.Connection, providerID, id uuid.UUID, updatedAt *time.Time) (*SCIMGroup, error) {
+func DeleteSCIMGroup(tx *storage.Connection, target SCIMTarget) (*SCIMGroup, error) {
 	group := &SCIMGroup{}
 	err := tx.RawQuery(
 		fmt.Sprintf("DELETE FROM %q WHERE id = ? AND sso_provider_id = ? AND (?::timestamptz IS NULL OR updated_at = ?) RETURNING "+scimGroupColumns, group.TableName()),
-		id, providerID, updatedAt, updatedAt,
+		target.ID, target.ProviderID, target.UpdatedAt, target.UpdatedAt,
 	).First(group)
 	if err != nil {
-		return nil, scimWriteError[SCIMGroup](tx, scimGroupsTable, err, providerID, id, updatedAt, "deleting")
+		return nil, scimGroupsTable.writeError(tx, target, err, "deleting")
 	}
 	return group, nil
 }

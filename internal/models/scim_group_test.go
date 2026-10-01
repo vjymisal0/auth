@@ -117,14 +117,14 @@ func (ts *SCIMGroupTestSuite) TestFindGroupsFiltersAndSorts() {
 func (ts *SCIMGroupTestSuite) TestReplaceChecksVersion() {
 	group := ts.createGroup(ts.provider.ID, "Engineering")
 
-	replaced, err := ReplaceSCIMGroup(ts.db, ts.provider.ID, group.ID, []byte(`{"displayName":"Platform"}`), &group.UpdatedAt)
+	replaced, err := ReplaceSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID, UpdatedAt: &group.UpdatedAt}, []byte(`{"displayName":"Platform"}`))
 	require.NoError(ts.T(), err)
 	require.Equal(ts.T(), "platform", replaced.DisplayName)
 
-	_, err = ReplaceSCIMGroup(ts.db, ts.provider.ID, group.ID, []byte(`{"displayName":"Stale"}`), &group.UpdatedAt)
+	_, err = ReplaceSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID, UpdatedAt: &group.UpdatedAt}, []byte(`{"displayName":"Stale"}`))
 	require.ErrorIs(ts.T(), err, SCIMGroupStaleError{})
 
-	_, err = ReplaceSCIMGroup(ts.db, ts.createProvider().ID, group.ID, []byte(`{"displayName":"Other"}`), nil)
+	_, err = ReplaceSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.createProvider().ID, ID: group.ID}, []byte(`{"displayName":"Other"}`))
 	require.ErrorIs(ts.T(), err, SCIMGroupNotFoundError{})
 }
 
@@ -134,7 +134,7 @@ func (ts *SCIMGroupTestSuite) TestDeleteRemovesMembers() {
 	_, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{user.ID})
 	require.NoError(ts.T(), err)
 
-	_, err = DeleteSCIMGroup(ts.db, ts.provider.ID, group.ID, nil)
+	_, err = DeleteSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID})
 	require.NoError(ts.T(), err)
 
 	_, err = FindSCIMGroup(ts.db, ts.provider.ID, group.ID)
@@ -143,7 +143,7 @@ func (ts *SCIMGroupTestSuite) TestDeleteRemovesMembers() {
 	require.NoError(ts.T(), err)
 	require.Zero(ts.T(), count)
 
-	_, err = DeleteSCIMGroup(ts.db, ts.provider.ID, group.ID, nil)
+	_, err = DeleteSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID})
 	require.ErrorIs(ts.T(), err, SCIMGroupNotFoundError{})
 }
 
@@ -191,7 +191,7 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersRejectsOtherProviderUsers() {
 func (ts *SCIMGroupTestSuite) TestReplaceMembersRejectsDeletedUsers() {
 	group := ts.createGroup(ts.provider.ID, "Engineering")
 	alice := ts.createUser(ts.provider.ID, "alice")
-	_, err := DeleteSCIMUser(ts.db, ts.provider.ID, alice.ID, nil)
+	_, err := DeleteSCIMUser(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: alice.ID})
 	require.NoError(ts.T(), err)
 
 	_, _, err = ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID})
@@ -207,7 +207,7 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersWaitsForConcurrentUserDelete() {
 
 	deleting := ts.beginTx()
 	defer func() { _ = deleting.TX.Rollback() }()
-	_, err := DeleteSCIMUser(deleting, ts.provider.ID, alice.ID, nil)
+	_, err := DeleteSCIMUser(deleting, SCIMTarget{ProviderID: ts.provider.ID, ID: alice.ID})
 	require.NoError(ts.T(), err)
 	_, err = RemoveSCIMUserFromGroups(deleting, alice.ID)
 	require.NoError(ts.T(), err)
@@ -237,7 +237,7 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersDoesNotLockExistingMembers() {
 
 	deleting := ts.beginTx()
 	defer func() { _ = deleting.TX.Rollback() }()
-	_, err = DeleteSCIMUser(deleting, ts.provider.ID, alice.ID, nil)
+	_, err = DeleteSCIMUser(deleting, SCIMTarget{ProviderID: ts.provider.ID, ID: alice.ID})
 	require.NoError(ts.T(), err)
 
 	result := make(chan error, 1)
@@ -275,7 +275,7 @@ func (ts *SCIMGroupTestSuite) TestFindMembersHidesDeletedUsers() {
 	_, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID})
 	require.NoError(ts.T(), err)
 
-	_, err = DeleteSCIMUser(ts.db, ts.provider.ID, alice.ID, nil)
+	_, err = DeleteSCIMUser(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: alice.ID})
 	require.NoError(ts.T(), err)
 
 	members, err := FindSCIMGroupMembers(ts.db, ts.provider.ID, []uuid.UUID{group.ID})

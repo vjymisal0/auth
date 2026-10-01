@@ -201,17 +201,20 @@ func scimEncode(resource core.Resource, drop ...string) ([]byte, error) {
 	return json.Marshal(fields)
 }
 
-func scimTarget(ctx context.Context, id, version string) (providerID, resourceID uuid.UUID, updatedAt *time.Time, err error) {
-	if providerID, err = scimProviderID(ctx); err != nil {
-		return uuid.Nil, uuid.Nil, nil, err
+func scimTarget(ctx context.Context, id, version string) (models.SCIMTarget, error) {
+	providerID, err := scimProviderID(ctx)
+	if err != nil {
+		return models.SCIMTarget{}, err
 	}
-	if resourceID, err = uuid.FromString(id); err != nil {
-		return uuid.Nil, uuid.Nil, nil, errSCIMNotFound()
+	resourceID, err := uuid.FromString(id)
+	if err != nil {
+		return models.SCIMTarget{}, errSCIMNotFound()
 	}
-	if updatedAt, err = scimParseVersion(version); err != nil {
-		return uuid.Nil, uuid.Nil, nil, err
+	updatedAt, err := scimParseVersion(version)
+	if err != nil {
+		return models.SCIMTarget{}, err
 	}
-	return providerID, resourceID, updatedAt, nil
+	return models.SCIMTarget{ProviderID: providerID, ID: resourceID, UpdatedAt: updatedAt}, nil
 }
 
 func scimProviderID(ctx context.Context) (uuid.UUID, error) {

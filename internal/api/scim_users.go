@@ -46,16 +46,16 @@ func (s *scimUserRepository) List(ctx context.Context, query *protocol.SearchReq
 }
 
 func (s *scimUserRepository) Get(ctx context.Context, id string) (*core.User, error) {
-	providerID, resourceID, _, err := scimTarget(ctx, id, "")
+	target, err := scimTarget(ctx, id, "")
 	if err != nil {
 		return nil, err
 	}
 	db := s.api.db.WithContext(ctx)
-	row, err := models.FindSCIMUser(db, providerID, resourceID)
+	row, err := models.FindSCIMUser(db, target.ProviderID, target.ID)
 	if err != nil {
 		return nil, scimError(err)
 	}
-	return s.renderOne(db, providerID, row, protocol.ProjectionFrom(ctx))
+	return s.renderOne(db, target.ProviderID, row, protocol.ProjectionFrom(ctx))
 }
 
 func (s *scimUserRepository) Create(ctx context.Context, user *core.User) (*core.User, error) {
@@ -105,10 +105,11 @@ func (s *scimUserRepository) Create(ctx context.Context, user *core.User) (*core
 }
 
 func (s *scimUserRepository) Replace(ctx context.Context, user *core.User) (*core.User, error) {
-	providerID, id, updatedAt, err := scimTarget(ctx, user.ID, user.Meta.Version)
+	target, err := scimTarget(ctx, user.ID, user.Meta.Version)
 	if err != nil {
 		return nil, err
 	}
+	providerID := target.ProviderID
 	resource, err := scimUserResource(user)
 	if err != nil {
 		return nil, err
@@ -122,7 +123,7 @@ func (s *scimUserRepository) Replace(ctx context.Context, user *core.User) (*cor
 		return nil, err
 	}
 	db := s.api.db.WithContext(ctx)
-	existing, err := models.FindSCIMUser(db, providerID, id)
+	existing, err := models.FindSCIMUser(db, providerID, target.ID)
 	if err != nil {
 		return nil, scimError(err)
 	}
@@ -146,7 +147,7 @@ func (s *scimUserRepository) Replace(ctx context.Context, user *core.User) (*cor
 				return terr
 			}
 		}
-		old, terr := models.FindSCIMUserForUpdate(tx, providerID, id)
+		old, terr := models.FindSCIMUserForUpdate(tx, providerID, target.ID)
 		if terr != nil {
 			return terr
 		}
@@ -154,11 +155,11 @@ func (s *scimUserRepository) Replace(ctx context.Context, user *core.User) (*cor
 			if terr := models.LockUserForSCIM(tx, *old.UserID); terr != nil {
 				return terr
 			}
-			if row, terr = models.FindUnchangedSCIMUser(tx, providerID, id, resource, updatedAt); terr != nil || row != nil {
+			if row, terr = models.FindUnchangedSCIMUser(tx, target, resource); terr != nil || row != nil {
 				return terr
 			}
 		}
-		if row, terr = models.ReplaceSCIMUser(tx, providerID, id, resource, updatedAt); terr != nil {
+		if row, terr = models.ReplaceSCIMUser(tx, target, resource); terr != nil {
 			return terr
 		}
 		if created, terr = s.syncAuthUser(tx, providerID, old, row, user); terr != nil {
@@ -174,7 +175,7 @@ func (s *scimUserRepository) Replace(ctx context.Context, user *core.User) (*cor
 }
 
 func (s *scimUserRepository) Delete(ctx context.Context, id, version string) error {
-	providerID, resourceID, updatedAt, err := scimTarget(ctx, id, version)
+	target, err := scimTarget(ctx, id, version)
 	if err != nil {
 		return err
 	}
@@ -183,7 +184,7 @@ func (s *scimUserRepository) Delete(ctx context.Context, id, version string) err
 		return err
 	}
 	db := s.api.db.WithContext(ctx)
-	existing, err := models.FindSCIMUser(db, providerID, resourceID)
+	existing, err := models.FindSCIMUser(db, target.ProviderID, target.ID)
 	if err != nil {
 		return scimError(err)
 	}
@@ -193,7 +194,7 @@ func (s *scimUserRepository) Delete(ctx context.Context, id, version string) err
 				return err
 			}
 		}
-		row, err := models.DeleteSCIMUser(tx, providerID, resourceID, updatedAt)
+		row, err := models.DeleteSCIMUser(tx, target)
 		if err != nil {
 			return err
 		}
