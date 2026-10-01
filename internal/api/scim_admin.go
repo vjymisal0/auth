@@ -13,7 +13,10 @@ import (
 	"github.com/supabase/auth/internal/utilities"
 )
 
-const scimProviderDeletedBan = 100 * 365 * 24 * time.Hour
+const (
+	scimProviderDeletedBan = 100 * 365 * 24 * time.Hour
+	scimTokenPrefixTrait   = "token_prefix"
+)
 
 type AdminSCIMTokenCreateParams struct {
 	ExpiresAt *time.Time `json:"expires_at"`
@@ -95,20 +98,10 @@ func (a *API) deprovisionSCIM(tx *storage.Connection, r *http.Request, provider 
 	if err != nil {
 		return err
 	}
-	if err := models.LockSCIMTokens(tx, provider.ID); err != nil {
-		return err
-	}
-	tokens, err := models.FindActiveSCIMTokensBySSOProvider(tx, provider.ID)
+	actor := getAdminUser(r.Context())
+	prefixes, err := a.auditSCIMTokensRevoked(tx, r, actor, provider.ID)
 	if err != nil {
 		return err
-	}
-	actor := getAdminUser(r.Context())
-	prefixes := make([]string, len(tokens))
-	for i := range tokens {
-		prefixes[i] = tokens[i].Prefix
-		if err := a.auditSCIM(tx, r, actor, models.SCIMTokenRevokedAction, provider.ID, map[string]any{"token_prefix": tokens[i].Prefix}); err != nil {
-			return err
-		}
 	}
 	if enabled && a.config.SSO.SCIM.Enabled {
 		if err := a.auditSCIM(tx, r, actor, models.SCIMDisabledAction, provider.ID, map[string]any{"token_prefixes": prefixes}); err != nil {
@@ -120,6 +113,24 @@ func (a *API) deprovisionSCIM(tx *storage.Connection, r *http.Request, provider 
 		return err
 	}
 	return a.auditSCIM(tx, r, actor, models.SCIMUsersBannedAction, provider.ID, map[string]any{"banned_user_count": banned})
+}
+
+func (a *API) auditSCIMTokensRevoked(tx *storage.Connection, r *http.Request, actor *models.User, providerID uuid.UUID) ([]string, error) {
+	if err := models.LockSCIMTokens(tx, providerID); err != nil {
+		return nil, err
+	}
+	tokens, err := models.FindActiveSCIMTokensBySSOProvider(tx, providerID)
+	if err != nil {
+		return nil, err
+	}
+	prefixes := make([]string, len(tokens))
+	for i := range tokens {
+		prefixes[i] = tokens[i].Prefix
+		if err := a.auditSCIM(tx, r, actor, models.SCIMTokenRevokedAction, providerID, map[string]any{scimTokenPrefixTrait: tokens[i].Prefix}); err != nil {
+			return nil, err
+		}
+	}
+	return prefixes, nil
 }
 
 func (a *API) adminSCIMTokensCreate(w http.ResponseWriter, r *http.Request) error {
@@ -149,7 +160,7 @@ func (a *API) adminSCIMTokensCreate(w http.ResponseWriter, r *http.Request) erro
 		if token, plaintext, err = models.CreateSCIMToken(tx, provider, params.ExpiresAt); err != nil {
 			return err
 		}
-		return a.auditSCIM(tx, r, getAdminUser(ctx), models.SCIMTokenCreatedAction, provider.ID, map[string]any{"token_prefix": token.Prefix})
+		return a.auditSCIM(tx, r, getAdminUser(ctx), models.SCIMTokenCreatedAction, provider.ID, map[string]any{scimTokenPrefixTrait: token.Prefix})
 	}); err != nil {
 		if errors.Is(err, models.SCIMTokenExpiryError{}) {
 			return apierrors.NewBadRequestError(apierrors.ErrorCodeValidationFailed, "expires_at must be in the future")
@@ -196,7 +207,7 @@ func (a *API) adminSCIMTokensRevoke(w http.ResponseWriter, r *http.Request) erro
 		if err = token.Revoke(tx); err != nil {
 			return err
 		}
-		return a.auditSCIM(tx, r, getAdminUser(ctx), models.SCIMTokenRevokedAction, provider.ID, map[string]any{"token_prefix": token.Prefix})
+		return a.auditSCIM(tx, r, getAdminUser(ctx), models.SCIMTokenRevokedAction, provider.ID, map[string]any{scimTokenPrefixTrait: token.Prefix})
 	}); err != nil {
 		if models.IsNotFoundError(err) {
 			return apierrors.NewNotFoundError(apierrors.ErrorCodeSCIMTokenNotFound, "SCIM token not found")

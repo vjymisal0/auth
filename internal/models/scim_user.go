@@ -3,8 +3,6 @@ package models
 import (
 	"encoding/json"
 	"fmt"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -115,6 +113,13 @@ func LockUserForSCIM(tx *storage.Connection, userID uuid.UUID) error {
 		return errors.Wrap(err, "error locking user")
 	}
 	return nil
+}
+
+func LogoutSCIMUser(tx *storage.Connection, userID uuid.UUID) error {
+	if err := LockUserForSCIM(tx, userID); err != nil {
+		return err
+	}
+	return Logout(tx, userID)
 }
 
 func SoftDeleteSCIMUsersByUserID(tx *storage.Connection, userID uuid.UUID) ([]SCIMUser, error) {
@@ -249,30 +254,6 @@ func RenameSCIMIdentity(tx *storage.Connection, userID uuid.UUID, provider, from
 	}
 	if count == 0 {
 		return SCIMIdentityNotFoundError{}
-	}
-	return nil
-}
-
-func LockAccountLinkingEmails(tx *storage.Connection, providerType string, emails []string) error {
-	keys := make([]string, 0, len(emails))
-	for _, email := range emails {
-		if email != "" {
-			keys = append(keys, strings.ToLower(email))
-		}
-	}
-	slices.Sort(keys)
-	for _, email := range slices.Compact(keys) {
-		if err := LockAccountLinking(tx, providerType, email); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func LockAccountLinking(tx *storage.Connection, providerType, email string) error {
-	key := providerType + "|" + strings.ToLower(email)
-	if err := tx.RawQuery("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", key).Exec(); err != nil {
-		return errors.Wrap(err, "error locking account linking")
 	}
 	return nil
 }

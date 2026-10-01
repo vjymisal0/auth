@@ -1,8 +1,10 @@
 package models
 
 import (
+	"slices"
 	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/supabase/auth/internal/api/provider"
 	"github.com/supabase/auth/internal/conf"
 	"github.com/supabase/auth/internal/storage"
@@ -218,4 +220,28 @@ func DetermineAccountLinking(tx *storage.Connection, config *conf.GlobalConfigur
 		LinkingDomain:  candidateLinkingDomain,
 		CandidateEmail: candidateEmail,
 	}, nil
+}
+
+func LockAccountLinkingEmails(tx *storage.Connection, providerType string, emails []string) error {
+	keys := make([]string, 0, len(emails))
+	for _, email := range emails {
+		if email != "" {
+			keys = append(keys, strings.ToLower(email))
+		}
+	}
+	slices.Sort(keys)
+	for _, email := range slices.Compact(keys) {
+		if err := LockAccountLinking(tx, providerType, email); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func LockAccountLinking(tx *storage.Connection, providerType, email string) error {
+	key := providerType + "|" + strings.ToLower(email)
+	if err := tx.RawQuery("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", key).Exec(); err != nil {
+		return errors.Wrap(err, "error locking account linking")
+	}
+	return nil
 }

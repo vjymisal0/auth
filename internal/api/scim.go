@@ -34,7 +34,7 @@ const (
 
 var errMissingSSOProvider = errors.New("scim: request has no SSO provider")
 
-func newSCIMServer(config *conf.GlobalConfiguration, validate server.TokenValidator, limit func(http.Handler) http.Handler, users server.Repository[*core.User], groups server.Repository[*core.Group]) *server.Server {
+func (a *API) newSCIMServer(validate server.TokenValidator, limit func(http.Handler) http.Handler) *server.Server {
 	requireToken := server.RequireBearerToken(validate)
 	authenticate := func(next http.Handler) http.Handler {
 		if limit != nil {
@@ -44,13 +44,13 @@ func newSCIMServer(config *conf.GlobalConfiguration, validate server.TokenValida
 	}
 	return server.New(scimBasePath,
 		core.NewServiceProviderConfig().Filtering(protocol.DefaultLimits.MaxCount).Patching().Sorting().Versioning(),
-		server.WithBaseURL(scimBaseURL(config)),
+		server.WithBaseURL(scimBaseURL(a.config)),
 		server.ErrorHandler(scimLogError),
 		server.WithResource(server.NewResource[*core.User](scimResourceTypeUser, "/Users", core.SchemaUser, scimUserSchemas.Base().Attributes...).
 			WithExtension(core.SchemaEnterpriseUser, scimUserSchemas.Extensions()[0].Attributes...).
-			WithRepository(users)),
+			WithRepository(&scimUsers{api: a})),
 		server.WithResource(server.NewResource[*core.Group](scimResourceTypeGroup, "/Groups", core.SchemaGroup, scimGroupSchemas.Base().Attributes...).
-			WithRepository(groups)),
+			WithRepository(&scimGroups{api: a})),
 		server.WithAuthentication(core.NewOAuthBearerToken().AsPrimary(), authenticate),
 	)
 }
@@ -313,7 +313,7 @@ func (a *API) auditSCIM(tx *storage.Connection, r *http.Request, actor *models.U
 	return models.NewAuditLogEntry(a.config.AuditLog, r, tx, actor, action, utilities.GetIPAddress(r), traits)
 }
 
-func (a *API) auditSCIMMember(tx *storage.Connection, r *http.Request, actor *models.User, action models.AuditAction, providerID, groupID, scimUserID uuid.UUID, userID *uuid.UUID) error {
+func scimMemberTraits(groupID, scimUserID uuid.UUID, userID *uuid.UUID) map[string]any {
 	traits := map[string]any{
 		"scim_group_id": groupID,
 		"scim_user_id":  scimUserID,
@@ -321,5 +321,5 @@ func (a *API) auditSCIMMember(tx *storage.Connection, r *http.Request, actor *mo
 	if userID != nil {
 		traits["user_id"] = *userID
 	}
-	return a.auditSCIM(tx, r, actor, action, providerID, traits)
+	return traits
 }

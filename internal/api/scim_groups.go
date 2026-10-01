@@ -224,7 +224,7 @@ func (s *scimGroups) auditMembers(tx *storage.Connection, r *http.Request, row *
 			if linked, ok := links[id]; ok {
 				userID = &linked
 			}
-			if err := s.api.auditSCIMMember(tx, r, scimActor(r), change.action, row.SSOProviderID, row.ID, id, userID); err != nil {
+			if err := s.api.auditSCIM(tx, r, scimActor(r), change.action, row.SSOProviderID, scimMemberTraits(row.ID, id, userID)); err != nil {
 				return err
 			}
 		}

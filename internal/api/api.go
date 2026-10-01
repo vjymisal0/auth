@@ -138,11 +138,9 @@ func NewAPIWithVersion(globalConfig *conf.GlobalConfiguration, db *storage.Conne
 		api.oauthServer = oauthserver.NewServer(globalConfig, db, api.tokenService)
 	}
 
-	api.scim = newSCIMServer(globalConfig,
+	api.scim = api.newSCIMServer(
 		api.limitSCIMInvalidToken(newSCIMTokenValidator(db), api.limiterOpts.SCIMIP),
 		api.limitSCIMProvider(api.limiterOpts.SCIM),
-		&scimUsers{api: api},
-		&scimGroups{api: api},
 	)
 
 	if api.config.Password.HIBP.Enabled {

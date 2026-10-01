@@ -198,7 +198,7 @@ func (s *scimUsers) Delete(ctx context.Context, id, version string) error {
 			return err
 		}
 		if row.UserID != nil {
-			if err := scimDeactivate(tx, *row.UserID); err != nil {
+			if err := models.LogoutSCIMUser(tx, *row.UserID); err != nil {
 				return err
 			}
 		}
@@ -284,7 +284,7 @@ func (s *scimUsers) sync(tx *storage.Connection, providerID uuid.UUID, old, row 
 		}
 	}
 	if old.Active && !row.Active {
-		return nil, scimDeactivate(tx, linked.ID)
+		return nil, models.LogoutSCIMUser(tx, linked.ID)
 	}
 	return nil, nil
 }
@@ -299,7 +299,7 @@ func (s *scimUsers) linkNew(tx *storage.Connection, row *models.SCIMUser, user *
 		created = linked
 	}
 	if !row.Active {
-		return created, scimDeactivate(tx, linked.ID)
+		return created, models.LogoutSCIMUser(tx, linked.ID)
 	}
 	return created, nil
 }
@@ -413,7 +413,7 @@ func (a *API) removeSCIMUserFromGroups(tx *storage.Connection, r *http.Request, 
 		return err
 	}
 	for _, groupID := range groupIDs {
-		if err := a.auditSCIMMember(tx, r, actor, models.SCIMGroupMemberRemovedAction, row.SSOProviderID, groupID, row.ID, row.UserID); err != nil {
+		if err := a.auditSCIM(tx, r, actor, models.SCIMGroupMemberRemovedAction, row.SSOProviderID, scimMemberTraits(groupID, row.ID, row.UserID)); err != nil {
 			return err
 		}
 	}
@@ -493,13 +493,6 @@ func scimUserAuditAction(before, after *models.SCIMUser) models.AuditAction {
 		return models.SCIMUserReactivatedAction
 	}
 	return models.SCIMUserUpdatedAction
-}
-
-func scimDeactivate(tx *storage.Connection, userID uuid.UUID) error {
-	if err := models.LockUserForSCIM(tx, userID); err != nil {
-		return err
-	}
-	return models.Logout(tx, userID)
 }
 
 func scimHookError(err error) error {
