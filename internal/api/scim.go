@@ -6,13 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/didip/tollbooth/v5"
-	"github.com/didip/tollbooth/v5/limiter"
 	"github.com/gofrs/uuid"
 	"github.com/supabase-community/scim-go/pkg/core"
 	"github.com/supabase-community/scim-go/pkg/protocol"
@@ -122,50 +119,6 @@ func (a *API) withSCIMRequest(w http.ResponseWriter, req *http.Request) (context
 	return scimRequestKey.WithValue(req.Context(), req), nil
 }
 
-func (a *API) limitSCIMByIP(lmt *limiter.Limiter) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if a.scimSkipsTokenValidator(r) && a.performRateLimiting(lmt, r) != nil {
-				handler(scimTooManyRequests)(w, r)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func (a *API) scimSkipsTokenValidator(r *http.Request) bool {
-	if _, err := a.extractBearerToken(r); err != nil {
-		return true
-	}
-	return r.URL.Path == scimBasePath+"/ServiceProviderConfig" || path.Clean(r.URL.Path) != r.URL.Path
-}
-
-func (a *API) limitSCIMInvalidToken(validate server.TokenValidator, lmt *limiter.Limiter) server.TokenValidator {
-	return func(ctx context.Context, candidate string) (context.Context, error) {
-		next, err := validate(ctx, candidate)
-		if !errors.Is(err, server.ErrInvalidToken) {
-			return next, err
-		}
-		if r := scimRequestKey.Value(ctx); r != nil && a.performRateLimiting(lmt, r) != nil {
-			return ctx, errSCIMTooManyRequests()
-		}
-		return next, err
-	}
-}
-
-func (a *API) limitSCIMByProvider(lmt *limiter.Limiter) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if providerID, err := scimProviderID(r.Context()); err == nil && tollbooth.LimitByKeys(lmt, []string{providerID.String()}) != nil {
-				handler(scimTooManyRequests)(w, r)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 func (a *API) auditSCIM(tx *storage.Connection, r *http.Request, actor *models.User, action models.AuditAction, providerID uuid.UUID, traits map[string]any) error {
 	traits["sso_provider_id"] = providerID
 	traits["outcome"] = "success"
@@ -174,10 +127,6 @@ func (a *API) auditSCIM(tx *storage.Connection, r *http.Request, actor *models.U
 
 func scimBaseURL(config *conf.GlobalConfiguration) string {
 	return strings.TrimRight(config.API.ExternalURL, "/") + scimBasePath
-}
-
-func scimTooManyRequests(w http.ResponseWriter, r *http.Request) error {
-	return protocol.SendError(w, errSCIMTooManyRequests())
 }
 
 func scimLogError(r *http.Request, err error) {
@@ -288,50 +237,6 @@ func scimParseVersion(version string) (*time.Time, error) {
 	}
 	updatedAt := time.UnixMicro(micros)
 	return &updatedAt, nil
-}
-
-func scimError(err error) error {
-	switch {
-	case models.IsNotFoundError(err):
-		return errSCIMNotFound()
-	case errors.Is(err, models.SCIMUserStaleError{}), errors.Is(err, models.SCIMGroupStaleError{}):
-		return errSCIMStale()
-	case errors.Is(err, models.SCIMGroupConflictError{}):
-		return scimerrors.ErrUniqueness(`"externalId" must be unique`)
-	case errors.As(err, &models.SCIMGroupMemberNotFoundError{}):
-		return errSCIMMemberNotFound()
-	case errors.Is(err, models.SCIMUserConflictError{}):
-		return scimerrors.ErrUniqueness(`"userName" and "externalId" must be unique`)
-	case errors.Is(err, models.SCIMUserLinkedError{}):
-		return scimerrors.ErrUniqueness("user is already provisioned by this provider")
-	case errors.Is(err, models.SCIMUserDeletedError{}):
-		return scimerrors.ErrUniqueness("user was deleted by this provider")
-	}
-	return err
-}
-
-func errSCIMNotFound() error {
-	return scimerrors.ErrNotFound("Resource not found")
-}
-
-func errSCIMStale() error {
-	return scimerrors.ErrPreconditionFailed("resource has changed on the server")
-}
-
-func errSCIMMemberNotFound() error {
-	return scimerrors.ErrInvalidValue(`"members.value" must reference a User in this provider`)
-}
-
-func errSCIMEmailRequired() error {
-	return scimerrors.ErrInvalidValue(`"emails" or an email address "userName" is required`)
-}
-
-func errSCIMEmailInvalid() error {
-	return scimerrors.ErrInvalidValue(`"emails" value must be an email address`)
-}
-
-func errSCIMTooManyRequests() error {
-	return scimerrors.NewError(http.StatusTooManyRequests, "", "Request rate limit reached")
 }
 
 func scimActor(r *http.Request) *models.User {
