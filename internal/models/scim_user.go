@@ -174,14 +174,6 @@ func LinkSCIMUser(tx *storage.Connection, user *SCIMUser, userID uuid.UUID) erro
 	return nil
 }
 
-func wasSCIMProvisioned(tx *storage.Connection, providerID, userID uuid.UUID) (bool, error) {
-	provisioned, err := tx.Q().Where("sso_provider_id = ? AND user_id = ?", providerID, userID).Exists(&SCIMUser{})
-	if err != nil {
-		return false, errors.Wrap(err, "error finding SCIM user")
-	}
-	return provisioned, nil
-}
-
 func IsSCIMManaged(tx *storage.Connection, providerID, userID uuid.UUID) (bool, error) {
 	managed, err := tx.Q().Where("sso_provider_id = ? AND user_id = ? AND deleted_at IS NULL", providerID, userID).Exists(&SCIMUser{})
 	if err != nil {
@@ -191,18 +183,24 @@ func IsSCIMManaged(tx *storage.Connection, providerID, userID uuid.UUID) (bool, 
 }
 
 func IsSCIMDeprovisioned(tx *storage.Connection, providerID, userID uuid.UUID) (bool, error) {
-	provisioned, err := wasSCIMProvisioned(tx, providerID, userID)
-	if err != nil {
-		return false, err
+	result := struct {
+		AnyRow bool `db:"any_row"`
+		Live   bool `db:"live"`
+	}{}
+	if err := tx.RawQuery(
+		fmt.Sprintf(
+			"SELECT EXISTS(SELECT 1 FROM %q WHERE sso_provider_id = ? AND user_id = ?) AS any_row, "+
+				"EXISTS(SELECT 1 FROM %q WHERE sso_provider_id = ? AND user_id = ? AND deleted_at IS NULL AND active) AS live",
+			(&SCIMUser{}).TableName(), (&SCIMUser{}).TableName(),
+		),
+		providerID, userID, providerID, userID,
+	).First(&result); err != nil {
+		return false, errors.Wrap(err, "error finding SCIM user")
 	}
-	if !provisioned {
+	if !result.AnyRow {
 		return false, nil
 	}
-	live, err := tx.Q().Where("sso_provider_id = ? AND user_id = ? AND deleted_at IS NULL AND active", providerID, userID).Exists(&SCIMUser{})
-	if err != nil {
-		return false, errors.Wrap(err, "error finding live SCIM user")
-	}
-	return !live, nil
+	return !result.Live, nil
 }
 
 func IsSCIMUserDeprovisionedForUpdate(tx *storage.Connection, userID uuid.UUID) (bool, error) {
