@@ -68,18 +68,7 @@ func (s *scimUserRepository) Create(ctx context.Context, user *core.User) (*core
 	}
 
 	change := scimUserChange{r: r, target: models.SCIMTarget{ProviderID: providerID}, resource: resource, user: user}
-	var row *models.SCIMUser
-	var created *models.User
-	err = db.Transaction(func(tx *storage.Connection) error {
-		var terr error
-		row, created, terr = s.create(tx, change)
-		return terr
-	})
-	if err != nil {
-		return nil, scimError(err)
-	}
-	s.runAfterUserCreatedHook(r, db, created)
-	return s.renderOne(db, providerID, row, protocol.Projection{})
+	return s.save(db, change, s.create)
 }
 
 func (s *scimUserRepository) Replace(ctx context.Context, user *core.User) (*core.User, error) {
@@ -107,18 +96,9 @@ func (s *scimUserRepository) Replace(ctx context.Context, user *core.User) (*cor
 	}
 
 	change := scimUserChange{r: r, target: target, resource: resource, user: user}
-	var row *models.SCIMUser
-	var created *models.User
-	err = db.Transaction(func(tx *storage.Connection) error {
-		var terr error
-		row, created, terr = s.replace(tx, change, existing)
-		return terr
+	return s.save(db, change, func(tx *storage.Connection, change scimUserChange) (*models.SCIMUser, *models.User, error) {
+		return s.replace(tx, change, existing)
 	})
-	if err != nil {
-		return nil, scimError(err)
-	}
-	s.runAfterUserCreatedHook(r, db, created)
-	return s.renderOne(db, target.ProviderID, row, protocol.Projection{})
 }
 
 func (s *scimUserRepository) Delete(ctx context.Context, id, version string) error {
@@ -138,6 +118,23 @@ func (s *scimUserRepository) Delete(ctx context.Context, id, version string) err
 	return scimError(db.Transaction(func(tx *storage.Connection) error {
 		return s.delete(tx, r, target, existing)
 	}))
+}
+
+func (s *scimUserRepository) save(db *storage.Connection, change scimUserChange, write func(*storage.Connection, scimUserChange) (*models.SCIMUser, *models.User, error)) (*core.User, error) {
+	var (
+		row     *models.SCIMUser
+		created *models.User
+	)
+	err := db.Transaction(func(tx *storage.Connection) error {
+		var terr error
+		row, created, terr = write(tx, change)
+		return terr
+	})
+	if err != nil {
+		return nil, scimError(err)
+	}
+	s.runAfterUserCreatedHook(change.r, db, created)
+	return s.renderOne(db, change.target.ProviderID, row, protocol.Projection{})
 }
 
 func (s *scimUserRepository) render(tx *storage.Connection, providerID uuid.UUID, rows []models.SCIMUser, projection protocol.Projection) ([]*core.User, error) {
