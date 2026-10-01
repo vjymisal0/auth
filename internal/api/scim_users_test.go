@@ -119,6 +119,16 @@ func (ts *SCIMUsersTestSuite) do(token, method, path, body string) (*httptest.Re
 }
 
 func (ts *SCIMUsersTestSuite) doAs(contentType, token, method, path, body string, headers ...string) (*httptest.ResponseRecorder, map[string]any) {
+	w := ts.serve(contentType, token, method, path, body, headers...)
+
+	var decoded map[string]any
+	if w.Body.Len() > 0 {
+		require.NoError(ts.T(), json.Unmarshal(w.Body.Bytes(), &decoded), w.Body.String())
+	}
+	return w, decoded
+}
+
+func (ts *SCIMUsersTestSuite) serve(contentType, token, method, path, body string, headers ...string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, "/scim/v2"+path, strings.NewReader(body))
 	r.Header.Set("Authorization", "Bearer "+token)
 	r.Header.Set("Content-Type", contentType)
@@ -127,12 +137,7 @@ func (ts *SCIMUsersTestSuite) doAs(contentType, token, method, path, body string
 	}
 	w := httptest.NewRecorder()
 	ts.API.handler.ServeHTTP(w, r)
-
-	var decoded map[string]any
-	if w.Body.Len() > 0 {
-		require.NoError(ts.T(), json.Unmarshal(w.Body.Bytes(), &decoded), w.Body.String())
-	}
-	return w, decoded
+	return w
 }
 
 func (ts *SCIMUsersTestSuite) create(token, body string) string {
@@ -378,8 +383,7 @@ func (ts *SCIMUsersTestSuite) whileLocked(lock, finish func(tx *storage.Connecti
 
 	code := make(chan int, 1)
 	go func() {
-		w, _ := ts.do(ts.TokenA, method, path, body)
-		code <- w.Code
+		code <- ts.serve(protocol.MediaType, ts.TokenA, method, path, body).Code
 	}()
 	select {
 	case c := <-code:

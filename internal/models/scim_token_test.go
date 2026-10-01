@@ -1,7 +1,6 @@
 package models
 
 import (
-	"regexp"
 	"testing"
 	"time"
 
@@ -55,7 +54,7 @@ func (ts *SCIMTokenTestSuite) createToken(expiresAt *time.Time) (*SCIMToken, str
 func (ts *SCIMTokenTestSuite) TestCreate() {
 	token, plaintext := ts.createToken(nil)
 
-	require.Regexp(ts.T(), regexp.MustCompile(`^scim_[0-9a-f]{40}$`), plaintext)
+	require.Regexp(ts.T(), `^scim_[0-9a-f]{40}$`, plaintext)
 	require.Equal(ts.T(), plaintext[:12], token.Prefix)
 	require.Equal(ts.T(), hashSCIMToken(plaintext), token.TokenHash)
 	require.NotEqual(ts.T(), plaintext, token.TokenHash)

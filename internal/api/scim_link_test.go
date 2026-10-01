@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -72,7 +71,7 @@ func (ts *SCIMUsersTestSuite) TestCreateDoesNotLinkOutsideProvider() {
 
 	require.NotEqual(ts.T(), password.ID, user.ID)
 	require.NotEqual(ts.T(), other.ID, user.ID)
-	require.Len(ts.T(), ts.identities(password), 0)
+	require.Empty(ts.T(), ts.identities(password))
 	require.Len(ts.T(), ts.identities(other), 1)
 }
 
@@ -131,7 +130,7 @@ func (ts *SCIMUsersTestSuite) TestPasswordUserWithSameEmailIsNeverLinked() {
 	reloaded, err := models.FindUserByID(ts.API.db, password.ID)
 	require.NoError(ts.T(), err)
 	require.False(ts.T(), reloaded.IsSSOUser)
-	require.Len(ts.T(), ts.identities(reloaded), 0)
+	require.Empty(ts.T(), ts.identities(reloaded))
 }
 
 func (ts *SCIMUsersTestSuite) TestLinkAccountKeepsUserSSO() {
@@ -146,7 +145,7 @@ func (ts *SCIMUsersTestSuite) TestLinkAccountKeepsUserSSO() {
 	require.Len(ts.T(), ts.identities(user), 2)
 	require.True(ts.T(), user.IsSSOUser)
 	require.Equal(ts.T(), http.StatusUnprocessableEntity, ts.passkeyRegistrationOptions(user))
-	require.Len(ts.T(), ts.identities(password), 0)
+	require.Empty(ts.T(), ts.identities(password))
 }
 
 func (ts *SCIMUsersTestSuite) TestOldEmailCannotSignInAfterEmailChange() {
@@ -507,7 +506,7 @@ func (ts *SCIMUsersTestSuite) issueSession(conn *storage.Connection, user *model
 
 func (ts *SCIMUsersTestSuite) requireBanned(err error) {
 	var httpErr *apierrors.HTTPError
-	require.True(ts.T(), errors.As(err, &httpErr), err)
+	require.ErrorAs(ts.T(), err, &httpErr)
 	require.Equal(ts.T(), http.StatusForbidden, httpErr.HTTPStatus)
 	require.Equal(ts.T(), apierrors.ErrorCodeUserBanned, httpErr.ErrorCode)
 }
@@ -758,7 +757,7 @@ func (ts *SCIMUsersTestSuite) TestCreateConcurrentSameEmailLinksToOneUser() {
 
 	count, err := ts.API.db.Q().Where("email = ?", "race@example.com").Count(&models.User{})
 	require.NoError(ts.T(), err)
-	require.EqualValues(ts.T(), 1, count)
+	require.Equal(ts.T(), 1, count)
 }
 
 func (ts *SCIMUsersTestSuite) rename(id, userName string) (int, string) {
