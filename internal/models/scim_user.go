@@ -38,14 +38,14 @@ type SCIMIdentityRename struct {
 }
 
 var scimUsersTable = scimTable{
-	name:     SCIMUser{}.TableName(),
-	label:    "SCIM user",
-	columns:  scimUserColumns,
-	nameCol:  "user_name",
-	live:     "deleted_at IS NULL",
-	notFound: SCIMUserNotFoundError{},
-	stale:    SCIMUserStaleError{},
-	conflict: SCIMUserConflictError{},
+	name:       SCIMUser{}.TableName(),
+	label:      "SCIM user",
+	columns:    scimUserColumns,
+	nameColumn: "user_name",
+	liveClause: "deleted_at IS NULL",
+	notFound:   SCIMUserNotFoundError{},
+	stale:      SCIMUserStaleError{},
+	conflict:   SCIMUserConflictError{},
 }
 
 func CreateSCIMUser(tx *storage.Connection, providerID uuid.UUID, resource []byte) (*SCIMUser, error) {
@@ -75,7 +75,7 @@ func ReplaceSCIMUser(tx *storage.Connection, target SCIMTarget, resource []byte)
 func DeleteSCIMUser(tx *storage.Connection, target SCIMTarget) (*SCIMUser, error) {
 	user := &SCIMUser{}
 	err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET deleted_at = now(), updated_at = now() WHERE id = ? AND sso_provider_id = ? AND deleted_at IS NULL AND (?::timestamptz IS NULL OR updated_at = ?) RETURNING "+scimUserColumns, user.TableName()),
+		fmt.Sprintf("UPDATE %q SET deleted_at = now(), updated_at = now() WHERE id = ? AND sso_provider_id = ? AND deleted_at IS NULL AND (?::timestamptz IS NULL OR updated_at = ?) RETURNING "+scimUserColumns, scimUsersTable.name),
 		target.ID, target.ProviderID, target.UpdatedAt, target.UpdatedAt,
 	).First(user)
 	if err != nil {
@@ -94,7 +94,7 @@ func FindSCIMUserLinks(tx *storage.Connection, ids []uuid.UUID) (map[uuid.UUID]u
 		UserID uuid.UUID `db:"user_id"`
 	}{}
 	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT id, user_id FROM %q WHERE id = ANY(?::uuid[]) AND user_id IS NOT NULL", (&SCIMUser{}).TableName()),
+		fmt.Sprintf("SELECT id, user_id FROM %q WHERE id = ANY(?::uuid[]) AND user_id IS NOT NULL", scimUsersTable.name),
 		ids,
 	).All(&rows); err != nil {
 		return nil, errors.Wrap(err, "error finding SCIM user links")
@@ -107,7 +107,7 @@ func FindSCIMUserLinks(tx *storage.Connection, ids []uuid.UUID) (map[uuid.UUID]u
 
 func LockUserForSCIM(tx *storage.Connection, userID uuid.UUID) error {
 	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT id FROM %q WHERE id = ? FOR UPDATE", (&User{}).TableName()),
+		fmt.Sprintf("SELECT id FROM %q WHERE id = ? FOR UPDATE", User{}.TableName()),
 		userID,
 	).Exec(); err != nil {
 		return errors.Wrap(err, "error locking user")
@@ -125,7 +125,7 @@ func LogoutSCIMUser(tx *storage.Connection, userID uuid.UUID) error {
 func SoftDeleteSCIMUsersByUserID(tx *storage.Connection, userID uuid.UUID) ([]SCIMUser, error) {
 	rows := []SCIMUser{}
 	if err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET deleted_at = now(), updated_at = now() WHERE user_id = ? AND deleted_at IS NULL RETURNING "+scimUserColumns, (&SCIMUser{}).TableName()),
+		fmt.Sprintf("UPDATE %q SET deleted_at = now(), updated_at = now() WHERE user_id = ? AND deleted_at IS NULL RETURNING "+scimUserColumns, scimUsersTable.name),
 		userID,
 	).All(&rows); err != nil {
 		return nil, errors.Wrap(err, "error deleting SCIM users by user id")
@@ -134,7 +134,7 @@ func SoftDeleteSCIMUsersByUserID(tx *storage.Connection, userID uuid.UUID) ([]SC
 }
 
 func BanDeprovisionedSCIMUsers(tx *storage.Connection, providerID uuid.UUID, until time.Time) (int, error) {
-	users, scimUsers := (&User{}).TableName(), (&SCIMUser{}).TableName()
+	users, scimUsers := User{}.TableName(), scimUsersTable.name
 	count, err := tx.RawQuery(
 		fmt.Sprintf(
 			"UPDATE %[1]q u SET banned_until = ?, updated_at = now() "+
@@ -165,7 +165,7 @@ func LinkSCIMUser(tx *storage.Connection, user *SCIMUser, userID uuid.UUID) erro
 	}
 
 	if err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET user_id = ? WHERE id = ?", user.TableName()),
+		fmt.Sprintf("UPDATE %q SET user_id = ? WHERE id = ?", scimUsersTable.name),
 		userID, user.ID,
 	).Exec(); err != nil {
 		return errors.Wrap(err, "error linking SCIM user")
@@ -189,9 +189,9 @@ func IsSCIMDeprovisioned(tx *storage.Connection, providerID, userID uuid.UUID) (
 	}{}
 	if err := tx.RawQuery(
 		fmt.Sprintf(
-			"SELECT EXISTS(SELECT 1 FROM %q WHERE sso_provider_id = ? AND user_id = ?) AS any_row, "+
-				"EXISTS(SELECT 1 FROM %q WHERE sso_provider_id = ? AND user_id = ? AND deleted_at IS NULL AND active) AS live",
-			(&SCIMUser{}).TableName(), (&SCIMUser{}).TableName(),
+			"SELECT EXISTS(SELECT 1 FROM %[1]q WHERE sso_provider_id = ? AND user_id = ?) AS any_row, "+
+				"EXISTS(SELECT 1 FROM %[1]q WHERE sso_provider_id = ? AND user_id = ? AND deleted_at IS NULL AND active) AS live",
+			scimUsersTable.name,
 		),
 		providerID, userID, providerID, userID,
 	).First(&result); err != nil {
@@ -205,7 +205,7 @@ func IsSCIMDeprovisioned(tx *storage.Connection, providerID, userID uuid.UUID) (
 
 func IsSCIMUserDeprovisionedForUpdate(tx *storage.Connection, userID uuid.UUID) (bool, error) {
 	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT id FROM %q WHERE id = ? FOR NO KEY UPDATE", (&User{}).TableName()),
+		fmt.Sprintf("SELECT id FROM %q WHERE id = ? FOR NO KEY UPDATE", User{}.TableName()),
 		userID,
 	).Exec(); err != nil {
 		return false, errors.Wrap(err, "error locking user")
@@ -215,7 +215,7 @@ func IsSCIMUserDeprovisionedForUpdate(tx *storage.Connection, userID uuid.UUID) 
 		DeletedAt *time.Time `db:"deleted_at"`
 	}{}
 	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT active, deleted_at FROM %q WHERE user_id = ?", (&SCIMUser{}).TableName()),
+		fmt.Sprintf("SELECT active, deleted_at FROM %q WHERE user_id = ?", scimUsersTable.name),
 		userID,
 	).All(&rows); err != nil {
 		return false, errors.Wrap(err, "error finding SCIM users")
@@ -233,7 +233,7 @@ func RenameSCIMIdentity(tx *storage.Connection, rename SCIMIdentityRename) error
 	if err != nil {
 		return errors.Wrap(err, "error encoding identity data")
 	}
-	table := (&Identity{}).TableName()
+	table := Identity{}.TableName()
 	if err := tx.RawQuery(
 		fmt.Sprintf("DELETE FROM %[1]q WHERE user_id = ? AND provider = ? AND provider_id <> ? AND (lower(provider_id) = lower(?) OR provider_id = ?) AND EXISTS (SELECT 1 FROM %[1]q WHERE user_id = ? AND provider = ? AND provider_id = ?)", table),
 		rename.UserID, rename.Provider, rename.From, rename.From, rename.To, rename.UserID, rename.Provider, rename.From,

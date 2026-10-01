@@ -154,7 +154,7 @@ func AuthenticateSCIMToken(tx *storage.Connection, plaintext string) (*SCIMToken
 )
 SELECT * FROM touched
 UNION ALL
-SELECT * FROM authenticated WHERE NOT EXISTS (SELECT 1 FROM touched)`, token.TableName(), (&SSOProvider{}).TableName(), (&SCIMSettings{}).TableName()),
+SELECT * FROM authenticated WHERE NOT EXISTS (SELECT 1 FROM touched)`, token.TableName(), SSOProvider{}.TableName(), SCIMSettings{}.TableName()),
 		HashSCIMToken(plaintext),
 	).First(token)
 	if err != nil {

@@ -46,14 +46,14 @@ type SCIMTarget struct {
 }
 
 type scimTable struct {
-	name     string
-	label    string
-	columns  string
-	nameCol  string
-	live     string
-	notFound error
-	stale    error
-	conflict error
+	name       string
+	label      string
+	columns    string
+	nameColumn string
+	liveClause string
+	notFound   error
+	stale      error
+	conflict   error
 }
 
 func findSCIMPage[T any](tx *storage.Connection, table scimTable, providerID uuid.UUID, query SCIMQuery) ([]T, int, error) {
@@ -81,7 +81,7 @@ func createSCIMRow[T any](tx *storage.Connection, table scimTable, providerID uu
 		fmt.Sprintf("INSERT INTO %q (id, sso_provider_id, resource) VALUES (?, ?, ?::jsonb) RETURNING "+table.columns, table.name),
 		uuid.Must(uuid.NewV4()), providerID, string(resource),
 	).First(row); err != nil {
-		return nil, table.error(err, "creating")
+		return nil, table.wrapError(err, "creating")
 	}
 	return row, nil
 }
@@ -96,7 +96,7 @@ func findSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarg
 		fmt.Sprintf("SELECT %s FROM %q WHERE %s%s", table.columns, table.name, table.targetClause(), lock),
 		target.ID, target.ProviderID,
 	).First(row); err != nil {
-		return nil, table.error(err, "finding")
+		return nil, table.wrapError(err, "finding")
 	}
 	return row, nil
 }
@@ -110,7 +110,7 @@ func findUnchangedSCIMRow[T any](tx *storage.Connection, table scimTable, target
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, table.error(err, "finding")
+		return nil, table.wrapError(err, "finding")
 	}
 	return row, nil
 }
@@ -129,11 +129,11 @@ func replaceSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMT
 func (t scimTable) where(providerID uuid.UUID, filter SCIMFilter) (string, []any) {
 	clauses := []string{"sso_provider_id = ?"}
 	args := []any{providerID}
-	if t.live != "" {
-		clauses = append(clauses, t.live)
+	if t.liveClause != "" {
+		clauses = append(clauses, t.liveClause)
 	}
 	if filter.Name != nil {
-		clauses = append(clauses, t.nameCol+` COLLATE "C" = lower(?)`)
+		clauses = append(clauses, t.nameColumn+` COLLATE "C" = lower(?)`)
 		args = append(args, *filter.Name)
 	}
 	if filter.ExternalID != nil {
@@ -144,10 +144,10 @@ func (t scimTable) where(providerID uuid.UUID, filter SCIMFilter) (string, []any
 }
 
 func (t scimTable) targetClause() string {
-	if t.live == "" {
+	if t.liveClause == "" {
 		return "id = ? AND sso_provider_id = ?"
 	}
-	return "id = ? AND sso_provider_id = ? AND " + t.live
+	return "id = ? AND sso_provider_id = ? AND " + t.liveClause
 }
 
 func (t scimTable) exists(tx *storage.Connection, target SCIMTarget) (bool, error) {
@@ -165,7 +165,7 @@ func (t scimTable) exists(tx *storage.Connection, target SCIMTarget) (bool, erro
 
 func (t scimTable) writeError(tx *storage.Connection, target SCIMTarget, err error, verb string) error {
 	if !errors.Is(err, sql.ErrNoRows) || target.UpdatedAt == nil {
-		return t.error(err, verb)
+		return t.wrapError(err, verb)
 	}
 	exists, findErr := t.exists(tx, target)
 	if findErr != nil {
@@ -186,14 +186,14 @@ func (t scimTable) orderBy(order SCIMOrder) string {
 	case SCIMSortByID:
 		return "id " + direction
 	case SCIMSortByName:
-		return t.nameCol + ` COLLATE "C" ` + direction + ", id " + direction
+		return t.nameColumn + ` COLLATE "C" ` + direction + ", id " + direction
 	case SCIMSortByUpdatedAt:
 		return "updated_at " + direction + ", id " + direction
 	}
 	return "created_at " + direction + ", id " + direction
 }
 
-func (t scimTable) error(err error, verb string) error {
+func (t scimTable) wrapError(err error, verb string) error {
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return t.notFound
