@@ -229,6 +229,20 @@ func (ts *SCIMUsersTestSuite) TestReplaceChangesEmail() {
 	require.Equal(ts.T(), user.ID, signedIn.ID)
 }
 
+func (ts *SCIMUsersTestSuite) TestReplaceChangingEmailClearsPendingTokens() {
+	id := ts.create(ts.TokenA, oktaUser)
+	user := ts.linkedUser(id)
+	user.RecoveryToken = "recovery-token-hash"
+	require.NoError(ts.T(), ts.API.db.UpdateOnly(user, "recovery_token"))
+	require.NoError(ts.T(), models.CreateOneTimeToken(ts.API.db, user.ID, "alice@example.com", "recovery-token-hash", models.RecoveryToken, time.Hour, true))
+
+	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, ts.withEmail("alice.smith@example.com"))
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+
+	require.Empty(ts.T(), ts.reloadUser(user.ID).RecoveryToken)
+	require.Zero(ts.T(), ts.countRows(&models.OneTimeToken{}, "user_id = ?", user.ID))
+}
+
 func (ts *SCIMUsersTestSuite) TestReplaceRenamesAndChangesEmail() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)

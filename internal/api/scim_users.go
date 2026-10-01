@@ -476,6 +476,9 @@ func (s *scimUserRepository) changeEmail(tx *storage.Connection, change scimUser
 	if err := linked.SetEmail(tx, strings.ToLower(email)); err != nil {
 		return err
 	}
+	if err := linked.ClearAllPendingTokens(tx); err != nil {
+		return err
+	}
 	return linked.UpdateUserMetaData(tx, map[string]any{"email": email})
 }
 
