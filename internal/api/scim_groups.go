@@ -118,22 +118,22 @@ func (s *scimGroupRepository) save(ctx context.Context, action models.AuditActio
 	}
 	change := scimGroupChange{r: r, action: action, members: members}
 	db := s.api.db.WithContext(ctx)
-	var row *models.SCIMGroup
+	var saved *core.Group
 	err = db.Transaction(func(tx *storage.Connection) error {
-		var (
-			changed bool
-			terr    error
-		)
-		if row, changed, terr = write(tx, resource); terr != nil {
+		row, changed, terr := write(tx, resource)
+		if terr != nil {
 			return terr
 		}
-		row, terr = s.applyMembers(tx, change, row, changed)
+		if row, terr = s.applyMembers(tx, change, row, changed); terr != nil {
+			return terr
+		}
+		saved, terr = s.renderOne(tx, row.SSOProviderID, row, protocol.Projection{})
 		return terr
 	})
 	if err != nil {
 		return nil, scimError(err)
 	}
-	return s.renderOne(db, row.SSOProviderID, row, protocol.Projection{})
+	return saved, nil
 }
 
 func (s *scimGroupRepository) applyMembers(tx *storage.Connection, change scimGroupChange, row *models.SCIMGroup, changed bool) (*models.SCIMGroup, error) {

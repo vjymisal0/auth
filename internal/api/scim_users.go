@@ -124,19 +124,23 @@ func (s *scimUserRepository) Delete(ctx context.Context, id, version string) err
 
 func (s *scimUserRepository) save(db *storage.Connection, change scimUserChange, write scimUserWrite) (*core.User, error) {
 	var (
-		row     *models.SCIMUser
+		saved   *core.User
 		created *models.User
 	)
 	err := db.Transaction(func(tx *storage.Connection) error {
-		var terr error
-		row, created, terr = write(tx, change)
+		row, user, terr := write(tx, change)
+		if terr != nil {
+			return terr
+		}
+		created = user
+		saved, terr = s.renderOne(tx, change.target.ProviderID, row, protocol.Projection{})
 		return terr
 	})
 	if err != nil {
 		return nil, scimError(err)
 	}
 	s.runAfterUserCreatedHook(change.r, db, created)
-	return s.renderOne(db, change.target.ProviderID, row, protocol.Projection{})
+	return saved, nil
 }
 
 func (s *scimUserRepository) render(tx *storage.Connection, providerID uuid.UUID, rows []models.SCIMUser, projection protocol.Projection) ([]*core.User, error) {
