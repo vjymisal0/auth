@@ -57,7 +57,8 @@ func (ts *SCIMUsersTestSuite) TestProviderDeleteBansDeprovisionedUsers() {
 	recreated := ts.linkedUser(recreatedID)
 	w, _ = ts.do(ts.TokenA, http.MethodDelete, "/Users/"+recreatedID, "")
 	require.Equal(ts.T(), http.StatusNoContent, w.Code)
-	require.Equal(ts.T(), recreated.ID, ts.linkedUser(ts.create(ts.TokenA, scimUser("recreated"))).ID)
+	relinkedID := ts.create(ts.TokenA, scimUser("relinked"))
+	require.NoError(ts.T(), ts.API.db.RawQuery("UPDATE scim_users SET user_id = ? WHERE id = ?", recreated.ID, relinkedID).Exec())
 
 	ts.createGroup(ts.TokenA, groupWith("A", "", deactivatedID))
 

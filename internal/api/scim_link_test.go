@@ -484,10 +484,10 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginBlockedAfterDelete() {
 	_, err := ts.samlLogin(ts.A, "Alice@Example.com", "alice@example.com")
 	require.Error(ts.T(), err)
 
-	relinked := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
-	user, err := ts.samlLogin(ts.A, "Alice@Example.com", "alice@example.com")
-	require.NoError(ts.T(), err)
-	require.Equal(ts.T(), relinked.ID, user.ID)
+	w, _ = ts.do(ts.TokenA, http.MethodPost, "/Users", oktaUser)
+	require.Equal(ts.T(), http.StatusConflict, w.Code)
+	_, err = ts.samlLogin(ts.A, "Alice@Example.com", "alice@example.com")
+	require.Error(ts.T(), err)
 }
 
 func (ts *SCIMUsersTestSuite) TestSAMLLoginBlockedWhenCreatedInactive() {
@@ -616,9 +616,9 @@ func (ts *SCIMUsersTestSuite) TestSessionRefusedWhileDeprovisioned() {
 	require.Equal(ts.T(), http.StatusNoContent, w.Code)
 	ts.requireBanned(ts.issueSession(ts.API.db, user))
 
-	relinked := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
-	require.Equal(ts.T(), user.ID, relinked.ID)
-	require.NoError(ts.T(), ts.issueSession(ts.API.db, relinked))
+	w, _ = ts.do(ts.TokenA, http.MethodPost, "/Users", oktaUser)
+	require.Equal(ts.T(), http.StatusConflict, w.Code)
+	ts.requireBanned(ts.issueSession(ts.API.db, user))
 }
 
 func (ts *SCIMUsersTestSuite) TestSessionAllowedWhileSCIMFlagOff() {
@@ -794,16 +794,36 @@ func (ts *SCIMUsersTestSuite) TestDeleteLogsOutWithoutBanning() {
 	require.Equal(ts.T(), http.StatusBadRequest, ts.refresh(refreshToken))
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateDoesNotBanAfterDelete() {
+func (ts *SCIMUsersTestSuite) TestCreateRefusesUserDeletedByProvider() {
+	for _, body := range []string{oktaUser, strings.Replace(oktaUser, `"userName": "Alice@Example.com"`, `"userName": "alice.new@example.com"`, 1)} {
+		ts.SetupTest()
+		id := ts.create(ts.TokenA, oktaUser)
+		user := ts.linkedUser(id)
+		w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+id, "")
+		require.Equal(ts.T(), http.StatusNoContent, w.Code)
+
+		w, got := ts.do(ts.TokenA, http.MethodPost, "/Users", body)
+
+		require.Equal(ts.T(), http.StatusConflict, w.Code, w.Body.String())
+		require.Equal(ts.T(), "uniqueness", got["scimType"])
+		require.False(ts.T(), ts.reloadUser(user.ID).IsBanned())
+		require.Zero(ts.T(), ts.countRows(&models.SCIMUser{}, "user_id = ? AND deleted_at IS NULL", user.ID))
+		require.Len(ts.T(), ts.identities(user), 1)
+		require.Equal(ts.T(), 1, ts.users("alice@example.com"))
+	}
+}
+
+func (ts *SCIMUsersTestSuite) TestCreateAfterAdminDeletesProviderDeletedUser() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 	w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+id, "")
 	require.Equal(ts.T(), http.StatusNoContent, w.Code)
+	require.NoError(ts.T(), ts.API.db.Destroy(user))
 
-	relinked := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
+	created := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
 
-	require.Equal(ts.T(), user.ID, relinked.ID)
-	require.False(ts.T(), relinked.IsBanned())
+	require.NotEqual(ts.T(), user.ID, created.ID)
+	require.True(ts.T(), created.IsSSOUser)
 }
 
 func (ts *SCIMUsersTestSuite) TestCreateConcurrentSameEmailLinksToOneUser() {

@@ -229,8 +229,9 @@ func (ts *SCIMUsersTestSuite) TestOktaLifecycle() {
 		require.EqualValues(ts.T(), 0, ts.list(ts.TokenA, filter)["totalResults"], filter)
 	}
 
-	reprovisioned := ts.create(ts.TokenA, oktaUser)
-	require.NotEqual(ts.T(), id, reprovisioned)
+	w, body := ts.do(ts.TokenA, http.MethodPost, "/Users", oktaUser)
+	require.Equal(ts.T(), http.StatusConflict, w.Code, w.Body.String())
+	require.Equal(ts.T(), "uniqueness", body["scimType"])
 	require.NoError(ts.T(), ts.API.db.Q().Where("id = ?", id).First(&stored))
 	require.NotNil(ts.T(), stored.DeletedAt)
 }

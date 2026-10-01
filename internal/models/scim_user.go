@@ -189,6 +189,14 @@ func IsSCIMManaged(tx *storage.Connection, providerID, userID uuid.UUID) (bool, 
 	return managed, nil
 }
 
+func IsSCIMDeleted(tx *storage.Connection, providerID, userID uuid.UUID) (bool, error) {
+	deleted, err := tx.Q().Where("sso_provider_id = ? AND user_id = ? AND deleted_at IS NOT NULL", providerID, userID).Exists(&SCIMUser{})
+	if err != nil {
+		return false, errors.Wrap(err, "error finding deleted SCIM user")
+	}
+	return deleted, nil
+}
+
 func IsSCIMDeprovisioned(tx *storage.Connection, providerID, userID uuid.UUID) (bool, error) {
 	result := struct {
 		AnyRow bool `db:"any_row"`
