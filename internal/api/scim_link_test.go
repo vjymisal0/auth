@@ -873,9 +873,6 @@ func (ts *SCIMUsersTestSuite) TestCreateConcurrentSameEmailLinksToOneUser() {
 	close(start)
 	wg.Wait()
 
-	// The lock serializes the two creates: whichever commits first creates the
-	// user, the other observes that account under the same provider and is
-	// rejected as already linked -- never silently creating a second user.
 	created := 0
 	for _, code := range codes {
 		if code == http.StatusCreated {
