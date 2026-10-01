@@ -24,6 +24,13 @@ type scimUserRepository struct {
 	api *API
 }
 
+type scimUserChange struct {
+	r        *http.Request
+	target   models.SCIMTarget
+	resource []byte
+	user     *core.User
+}
+
 func (s *scimUserRepository) List(ctx context.Context, query *protocol.SearchRequest) ([]*core.User, int, error) {
 	return scimLister[models.SCIMUser, *core.User]{
 		schemas: scimUserSchemas,
@@ -55,35 +62,22 @@ func (s *scimUserRepository) Create(ctx context.Context, user *core.User) (*core
 	if err != nil {
 		return nil, err
 	}
-	if err := scimValidatePrimaryEmail(user); err != nil {
-		return nil, err
-	}
-	if scimUserEmail(user) == "" {
-		return nil, errSCIMEmailRequired()
-	}
 	r, err := scimRequest(ctx)
 	if err != nil {
 		return nil, err
 	}
 	db := s.api.db.WithContext(ctx)
-	if err := s.runBeforeUserCreatedHook(r, db, providerID, user); err != nil {
-		return nil, scimError(err)
+	if err := s.beforeProvision(r, db, providerID, user); err != nil {
+		return nil, err
 	}
 
+	change := scimUserChange{r: r, target: models.SCIMTarget{ProviderID: providerID}, resource: resource, user: user}
 	var row *models.SCIMUser
 	var created *models.User
 	err = db.Transaction(func(tx *storage.Connection) error {
-		if terr := models.LockAccountLinking(tx, scimProviderType(providerID), scimUserEmail(user)); terr != nil {
-			return terr
-		}
 		var terr error
-		if row, terr = models.CreateSCIMUser(tx, providerID, resource); terr != nil {
-			return terr
-		}
-		if created, terr = s.provisionAuthUser(tx, row, user); terr != nil {
-			return terr
-		}
-		return s.audit(tx, r, models.SCIMUserCreatedAction, row)
+		row, created, terr = s.create(tx, change)
+		return terr
 	})
 	if err != nil {
 		return nil, scimError(err)
@@ -97,69 +91,38 @@ func (s *scimUserRepository) Replace(ctx context.Context, user *core.User) (*cor
 	if err != nil {
 		return nil, err
 	}
-	providerID := target.ProviderID
 	resource, err := scimUserResource(user)
 	if err != nil {
 		return nil, err
 	}
-	if err := scimValidatePrimaryEmail(user); err != nil {
-		return nil, err
-	}
-	email := scimUserEmail(user)
 	r, err := scimRequest(ctx)
 	if err != nil {
 		return nil, err
 	}
 	db := s.api.db.WithContext(ctx)
-	existing, err := models.FindSCIMUser(db, providerID, target.ID)
+	existing, err := models.FindSCIMUser(db, target.ProviderID, target.ID)
 	if err != nil {
 		return nil, scimError(err)
 	}
 	if existing.UserID == nil {
-		if email == "" {
-			return nil, errSCIMEmailRequired()
-		}
-		if err := s.runBeforeUserCreatedHook(r, db, providerID, user); err != nil {
-			return nil, scimError(err)
+		if err := s.beforeProvision(r, db, target.ProviderID, user); err != nil {
+			return nil, err
 		}
 	}
 
+	change := scimUserChange{r: r, target: target, resource: resource, user: user}
 	var row *models.SCIMUser
 	var created *models.User
 	err = db.Transaction(func(tx *storage.Connection) error {
-		if terr := models.LockAccountLinking(tx, scimProviderType(providerID), email); terr != nil {
-			return terr
-		}
-		if existing.UserID != nil {
-			if terr := models.LockUserForSCIM(tx, *existing.UserID); terr != nil {
-				return terr
-			}
-		}
-		old, terr := models.FindSCIMUserForUpdate(tx, providerID, target.ID)
-		if terr != nil {
-			return terr
-		}
-		if old.UserID != nil {
-			if terr := models.LockUserForSCIM(tx, *old.UserID); terr != nil {
-				return terr
-			}
-			if row, terr = models.FindUnchangedSCIMUser(tx, target, resource); terr != nil || row != nil {
-				return terr
-			}
-		}
-		if row, terr = models.ReplaceSCIMUser(tx, target, resource); terr != nil {
-			return terr
-		}
-		if created, terr = s.syncAuthUser(tx, providerID, old, row, user); terr != nil {
-			return terr
-		}
-		return s.audit(tx, r, scimUserAuditAction(old, row), row)
+		var terr error
+		row, created, terr = s.replace(tx, change, existing)
+		return terr
 	})
 	if err != nil {
 		return nil, scimError(err)
 	}
 	s.runAfterUserCreatedHook(r, db, created)
-	return s.renderOne(db, providerID, row, protocol.Projection{})
+	return s.renderOne(db, target.ProviderID, row, protocol.Projection{})
 }
 
 func (s *scimUserRepository) Delete(ctx context.Context, id, version string) error {
@@ -177,50 +140,16 @@ func (s *scimUserRepository) Delete(ctx context.Context, id, version string) err
 		return scimError(err)
 	}
 	return scimError(db.Transaction(func(tx *storage.Connection) error {
-		if existing.UserID != nil {
-			if err := models.LockUserForSCIM(tx, *existing.UserID); err != nil {
-				return err
-			}
-		}
-		row, err := models.DeleteSCIMUser(tx, target)
-		if err != nil {
-			return err
-		}
-		if row.UserID != nil {
-			if err := models.LogoutSCIMUser(tx, *row.UserID); err != nil {
-				return err
-			}
-		}
-		if err := s.api.removeSCIMUserFromGroups(tx, r, scimActor(r), row); err != nil {
-			return err
-		}
-		return s.audit(tx, r, models.SCIMUserDeletedAction, row)
+		return s.delete(tx, r, target, existing)
 	}))
 }
 
 func (s *scimUserRepository) render(tx *storage.Connection, providerID uuid.UUID, rows []models.SCIMUser, projection protocol.Projection) ([]*core.User, error) {
-	memberships := []models.SCIMGroupMembership{}
-	if projection.Returns("groups") {
-		ids := make([]uuid.UUID, len(rows))
-		for i, row := range rows {
-			ids[i] = row.ID
-		}
-		var err error
-		if memberships, err = models.FindSCIMGroupsForUsers(tx, providerID, ids); err != nil {
-			return nil, err
-		}
+	groups, err := s.groupMemberships(tx, providerID, rows, projection)
+	if err != nil {
+		return nil, err
 	}
 	base := scimBaseURL(s.api.config)
-	groups := map[uuid.UUID][]core.GroupMembership{}
-	for _, m := range memberships {
-		groups[m.SCIMUserID] = append(groups[m.SCIMUserID], core.GroupMembership{
-			Value:   m.GroupID.String(),
-			Ref:     base + "/Groups/" + m.GroupID.String(),
-			Display: m.Display,
-			Type:    "direct",
-		})
-	}
-
 	users := make([]*core.User, 0, len(rows))
 	for _, row := range rows {
 		user := &core.User{}
@@ -240,6 +169,31 @@ func (s *scimUserRepository) render(tx *storage.Connection, providerID uuid.UUID
 	return users, nil
 }
 
+func (s *scimUserRepository) groupMemberships(tx *storage.Connection, providerID uuid.UUID, rows []models.SCIMUser, projection protocol.Projection) (map[uuid.UUID][]core.GroupMembership, error) {
+	groups := map[uuid.UUID][]core.GroupMembership{}
+	if !projection.Returns("groups") {
+		return groups, nil
+	}
+	ids := make([]uuid.UUID, len(rows))
+	for i, row := range rows {
+		ids[i] = row.ID
+	}
+	memberships, err := models.FindSCIMGroupsForUsers(tx, providerID, ids)
+	if err != nil {
+		return nil, err
+	}
+	base := scimBaseURL(s.api.config)
+	for _, m := range memberships {
+		groups[m.SCIMUserID] = append(groups[m.SCIMUserID], core.GroupMembership{
+			Value:   m.GroupID.String(),
+			Ref:     base + "/Groups/" + m.GroupID.String(),
+			Display: m.Display,
+			Type:    "direct",
+		})
+	}
+	return groups, nil
+}
+
 func (s *scimUserRepository) renderOne(tx *storage.Connection, providerID uuid.UUID, row *models.SCIMUser, projection protocol.Projection) (*core.User, error) {
 	users, err := s.render(tx, providerID, []models.SCIMUser{*row}, projection)
 	if err != nil {
@@ -248,35 +202,96 @@ func (s *scimUserRepository) renderOne(tx *storage.Connection, providerID uuid.U
 	return users[0], nil
 }
 
-func (s *scimUserRepository) syncAuthUser(tx *storage.Connection, providerID uuid.UUID, old, row *models.SCIMUser, user *core.User) (*models.User, error) {
+func (s *scimUserRepository) create(tx *storage.Connection, change scimUserChange) (*models.SCIMUser, *models.User, error) {
+	if err := models.LockAccountLinking(tx, scimProviderType(change.target.ProviderID), scimUserEmail(change.user)); err != nil {
+		return nil, nil, err
+	}
+	row, err := models.CreateSCIMUser(tx, change.target.ProviderID, change.resource)
+	if err != nil {
+		return nil, nil, err
+	}
+	created, err := s.provisionAuthUser(tx, row, change.user)
+	if err != nil {
+		return nil, nil, err
+	}
+	return row, created, s.audit(tx, change.r, models.SCIMUserCreatedAction, row)
+}
+
+func (s *scimUserRepository) replace(tx *storage.Connection, change scimUserChange, existing *models.SCIMUser) (*models.SCIMUser, *models.User, error) {
+	old, err := s.lockForReplace(tx, change.target, scimUserEmail(change.user), existing)
+	if err != nil {
+		return nil, nil, err
+	}
+	row, changed, err := s.replaceRow(tx, change.target, old, change.resource)
+	if err != nil || !changed {
+		return row, nil, err
+	}
+	created, err := s.syncAuthUser(tx, change, old, row)
+	if err != nil {
+		return nil, nil, err
+	}
+	return row, created, s.audit(tx, change.r, scimUserAuditAction(old, row), row)
+}
+
+func (s *scimUserRepository) delete(tx *storage.Connection, r *http.Request, target models.SCIMTarget, existing *models.SCIMUser) error {
+	if err := lockSCIMLinkedUser(tx, existing.UserID); err != nil {
+		return err
+	}
+	row, err := models.DeleteSCIMUser(tx, target)
+	if err != nil {
+		return err
+	}
+	if err := logoutSCIMLinkedUser(tx, row.UserID); err != nil {
+		return err
+	}
+	if err := s.api.removeSCIMUserFromGroups(tx, r, scimActor(r), row); err != nil {
+		return err
+	}
+	return s.audit(tx, r, models.SCIMUserDeletedAction, row)
+}
+
+func (s *scimUserRepository) lockForReplace(tx *storage.Connection, target models.SCIMTarget, email string, existing *models.SCIMUser) (*models.SCIMUser, error) {
+	if err := models.LockAccountLinking(tx, scimProviderType(target.ProviderID), email); err != nil {
+		return nil, err
+	}
+	if err := lockSCIMLinkedUser(tx, existing.UserID); err != nil {
+		return nil, err
+	}
+	old, err := models.FindSCIMUserForUpdate(tx, target.ProviderID, target.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := lockSCIMLinkedUser(tx, old.UserID); err != nil {
+		return nil, err
+	}
+	return old, nil
+}
+
+func (s *scimUserRepository) replaceRow(tx *storage.Connection, target models.SCIMTarget, old *models.SCIMUser, resource []byte) (*models.SCIMUser, bool, error) {
+	if old.UserID != nil {
+		unchanged, err := models.FindUnchangedSCIMUser(tx, target, resource)
+		if err != nil || unchanged != nil {
+			return unchanged, false, err
+		}
+	}
+	row, err := models.ReplaceSCIMUser(tx, target, resource)
+	return row, err == nil, err
+}
+
+func (s *scimUserRepository) syncAuthUser(tx *storage.Connection, change scimUserChange, old, row *models.SCIMUser) (*models.User, error) {
 	if old.UserID == nil {
-		if scimUserEmail(user) == "" {
+		if scimUserEmail(change.user) == "" {
 			return nil, errSCIMEmailRequired()
 		}
-		return s.provisionAuthUser(tx, row, user)
+		return s.provisionAuthUser(tx, row, change.user)
 	}
 
 	linked, err := models.FindUserByID(tx, *old.UserID)
 	if err != nil {
 		return nil, err
 	}
-	if from := scimUserName(old.Resource); from != user.UserName {
-		data := map[string]any{"sub": user.UserName}
-		if email := scimUserEmail(user); email != "" {
-			data["email"] = email
-		}
-		err := models.RenameSCIMIdentity(tx, models.SCIMIdentityRename{
-			UserID:   linked.ID,
-			Provider: scimProviderType(providerID),
-			From:     from,
-			To:       user.UserName,
-			Data:     data,
-		})
-		if errors.Is(err, models.SCIMIdentityNotFoundError{}) {
-			logrus.WithField("user_id", linked.ID).WithField("sso_provider_id", providerID).Warn("scim: SCIM identity not found, rename skipped")
-		} else if err != nil {
-			return nil, err
-		}
+	if err := s.renameIdentity(tx, change.target.ProviderID, old, change.user); err != nil {
+		return nil, err
 	}
 	if old.Active && !row.Active {
 		return nil, models.LogoutSCIMUser(tx, linked.ID)
@@ -317,13 +332,7 @@ func (s *scimUserRepository) linkAuthUser(tx *storage.Connection, row *models.SC
 			return nil, false, err
 		}
 	case models.CreateAccount:
-		if linked, err = s.newUser(providerType, decision, user); err != nil {
-			return nil, false, err
-		}
-		if linked, err = s.api.signupNewUser(tx, linked); err != nil {
-			return nil, false, err
-		}
-		if _, err = s.api.createNewIdentity(tx, linked, providerType, scimIdentityData(user)); err != nil {
+		if linked, err = s.createAuthUser(tx, providerType, decision, user); err != nil {
 			return nil, false, err
 		}
 		return linked, true, models.LinkSCIMUser(tx, row, linked.ID)
@@ -334,6 +343,28 @@ func (s *scimUserRepository) linkAuthUser(tx *storage.Connection, row *models.SC
 	}
 
 	return linked, false, models.LinkSCIMUser(tx, row, linked.ID)
+}
+
+func (s *scimUserRepository) createAuthUser(tx *storage.Connection, providerType string, decision models.AccountLinkingResult, user *core.User) (*models.User, error) {
+	candidate, err := s.newUser(providerType, decision, user)
+	if err != nil {
+		return nil, err
+	}
+	created, err := s.api.signupNewUser(tx, candidate)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.api.createNewIdentity(tx, created, providerType, scimIdentityData(user)); err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+func (s *scimUserRepository) beforeProvision(r *http.Request, db *storage.Connection, providerID uuid.UUID, user *core.User) error {
+	if scimUserEmail(user) == "" {
+		return errSCIMEmailRequired()
+	}
+	return scimError(s.runBeforeUserCreatedHook(r, db, providerID, user))
 }
 
 func (s *scimUserRepository) runBeforeUserCreatedHook(r *http.Request, db *storage.Connection, providerID uuid.UUID, user *core.User) error {
@@ -382,6 +413,30 @@ func (s *scimUserRepository) newUser(providerType string, decision models.Accoun
 	return candidate, nil
 }
 
+func (s *scimUserRepository) renameIdentity(tx *storage.Connection, providerID uuid.UUID, old *models.SCIMUser, user *core.User) error {
+	userID := *old.UserID
+	from := scimUserName(old.Resource)
+	if from == user.UserName {
+		return nil
+	}
+	data := map[string]any{"sub": user.UserName}
+	if email := scimUserEmail(user); email != "" {
+		data["email"] = email
+	}
+	err := models.RenameSCIMIdentity(tx, models.SCIMIdentityRename{
+		UserID:   userID,
+		Provider: scimProviderType(providerID),
+		From:     from,
+		To:       user.UserName,
+		Data:     data,
+	})
+	if errors.Is(err, models.SCIMIdentityNotFoundError{}) {
+		logrus.WithField("user_id", userID).WithField("sso_provider_id", providerID).Warn("scim: SCIM identity not found, rename skipped")
+		return nil
+	}
+	return err
+}
+
 func (s *scimUserRepository) audit(tx *storage.Connection, r *http.Request, action models.AuditAction, row *models.SCIMUser) error {
 	return s.api.auditSCIM(tx, r, scimActor(r), action, row.SSOProviderID, scimUserTraits(row))
 }
@@ -416,7 +471,28 @@ func (a *API) removeSCIMUserFromGroups(tx *storage.Connection, r *http.Request, 
 }
 
 func scimUserResource(user *core.User) ([]byte, error) {
-	return scimEncode(user, "id", "meta", "password", "groups")
+	resource, err := scimEncode(user, "id", "meta", "password", "groups")
+	if err != nil {
+		return nil, err
+	}
+	if err := scimValidatePrimaryEmail(user); err != nil {
+		return nil, err
+	}
+	return resource, nil
+}
+
+func lockSCIMLinkedUser(tx *storage.Connection, userID *uuid.UUID) error {
+	if userID == nil {
+		return nil
+	}
+	return models.LockUserForSCIM(tx, *userID)
+}
+
+func logoutSCIMLinkedUser(tx *storage.Connection, userID *uuid.UUID) error {
+	if userID == nil {
+		return nil
+	}
+	return models.LogoutSCIMUser(tx, *userID)
 }
 
 func scimUserEmail(user *core.User) string {
