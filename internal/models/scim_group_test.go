@@ -300,6 +300,24 @@ func (ts *SCIMGroupTestSuite) TestFindMembersHidesDeletedUsers() {
 	require.Empty(ts.T(), members)
 }
 
+func (ts *SCIMGroupTestSuite) TestReplaceMembersValidatesOnlyAddedMembers() {
+	group := ts.createGroup(ts.provider.ID, "Engineering")
+	alice := ts.createUser(ts.provider.ID, "alice")
+	bob := ts.createUser(ts.provider.ID, "bob")
+	_, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID})
+	require.NoError(ts.T(), err)
+	_, err = DeleteSCIMUser(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: alice.ID})
+	require.NoError(ts.T(), err)
+
+	added, removed, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, bob.ID})
+	require.NoError(ts.T(), err)
+	require.Equal(ts.T(), []uuid.UUID{bob.ID}, added)
+	require.Empty(ts.T(), removed)
+
+	_, _, err = ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, bob.ID, uuid.Nil})
+	require.Equal(ts.T(), SCIMGroupMemberNotFoundError{IDs: []uuid.UUID{uuid.Nil}}, err)
+}
+
 func (ts *SCIMGroupTestSuite) TestFindGroupsForUsers() {
 	engineering := ts.createGroup(ts.provider.ID, "Engineering")
 	admins := ts.createGroup(ts.provider.ID, "Admins")
