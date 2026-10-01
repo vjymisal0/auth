@@ -203,6 +203,25 @@ func (ts *SCIMUsersTestSuite) TestReplaceChangesEmail() {
 	require.Equal(ts.T(), user.ID, signedIn.ID)
 }
 
+func (ts *SCIMUsersTestSuite) TestReplaceRenamesAndChangesEmail() {
+	id := ts.create(ts.TokenA, oktaUser)
+	user := ts.linkedUser(id)
+
+	body := strings.Replace(ts.withEmail("alice.smith@example.com"), `"userName": "Alice@Example.com"`, `"userName": "alice.smith@example.com"`, 1)
+	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, body)
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+
+	require.Equal(ts.T(), "alice.smith@example.com", ts.linkedUser(id).GetEmail())
+	identities := ts.identities(user)
+	require.Len(ts.T(), identities, 1)
+	require.Equal(ts.T(), "alice.smith@example.com", identities[0].ProviderID)
+	require.Equal(ts.T(), "alice.smith@example.com", identities[0].IdentityData["email"])
+
+	signedIn, err := ts.samlLogin(ts.A, "saml-name-id", "alice.smith@example.com")
+	require.NoError(ts.T(), err)
+	require.Equal(ts.T(), user.ID, signedIn.ID)
+}
+
 func (ts *SCIMUsersTestSuite) TestReplaceRejectsEmailTakenInProvider() {
 	id := ts.create(ts.TokenA, oktaUser)
 	ts.ssoUser(ts.A, "bob", "bob@example.com")
