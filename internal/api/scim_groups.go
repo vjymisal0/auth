@@ -104,7 +104,9 @@ func (s *scimGroupRepository) save(ctx context.Context, action models.AuditActio
 	if err != nil {
 		return nil, err
 	}
-	resource, err := scimEncode(group, "id", "meta", "members")
+	attributes := *group
+	attributes.Members = nil
+	resource, err := scimEncode(&attributes, "id", "meta", "members")
 	if err != nil {
 		return nil, err
 	}
