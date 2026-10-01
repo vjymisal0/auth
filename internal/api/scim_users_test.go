@@ -801,3 +801,29 @@ func TestSCIMRateLimit(t *testing.T) {
 		require.JSONEq(t, limited, w.Body.String())
 	}
 }
+
+func TestSCIMRateLimitEveryAuthorizationHeader(t *testing.T) {
+	api, _ := setupSCIMAPI(t, func(config *conf.GlobalConfiguration) {
+		config.RateLimitScim = 1
+	})
+	defer api.db.Close()
+	require.NoError(t, models.TruncateAll(api.db))
+
+	for i, header := range []string{"", "Bearer", "Bearer ", "bearer scim_invalid", "Bearer scim a", "Basic scim_invalid", "Bearer\tscim_invalid", "Bearer  scim_invalid"} {
+		ip := fmt.Sprintf("203.0.113.%d", 100+i)
+		send := func() *httptest.ResponseRecorder {
+			r := httptest.NewRequest(http.MethodGet, "/scim/v2/Users", nil)
+			if header != "" {
+				r.Header.Set("Authorization", header)
+			}
+			r.Header.Set(api.config.RateLimitHeader, ip)
+			w := httptest.NewRecorder()
+			api.handler.ServeHTTP(w, r)
+			return w
+		}
+		for range 30 {
+			require.NotEqual(t, http.StatusTooManyRequests, send().Code, header)
+		}
+		require.Equal(t, http.StatusTooManyRequests, send().Code, header)
+	}
+}
