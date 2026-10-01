@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"path"
+	"strconv"
 
 	"github.com/didip/tollbooth/v5"
 	"github.com/didip/tollbooth/v5/limiter"
@@ -16,7 +18,7 @@ func (a *API) limitSCIMByIP(lmt *limiter.Limiter) func(http.Handler) http.Handle
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if a.scimSkipsTokenValidator(r) && a.performRateLimiting(lmt, r) != nil {
-				handler(scimTooManyRequests)(w, r)
+				handler(scimTooManyRequests(lmt))(w, r)
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -48,7 +50,7 @@ func (a *API) limitSCIMByProvider(lmt *limiter.Limiter) func(http.Handler) http.
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if providerID, err := scimProviderID(r.Context()); err == nil && tollbooth.LimitByKeys(lmt, []string{providerID.String()}) != nil {
-				handler(scimTooManyRequests)(w, r)
+				handler(scimTooManyRequests(lmt))(w, r)
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -56,6 +58,11 @@ func (a *API) limitSCIMByProvider(lmt *limiter.Limiter) func(http.Handler) http.
 	}
 }
 
-func scimTooManyRequests(w http.ResponseWriter, r *http.Request) error {
-	return protocol.SendError(w, errSCIMTooManyRequests())
+func scimTooManyRequests(lmt *limiter.Limiter) apiHandler {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		if perSecond := lmt.GetMax(); perSecond > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(1/perSecond))))
+		}
+		return protocol.SendError(w, errSCIMTooManyRequests())
+	}
 }

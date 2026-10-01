@@ -49,6 +49,7 @@ func TestSCIMRateLimit(t *testing.T) {
 	w := get(tokenA, ip)
 	require.Equal(t, http.StatusTooManyRequests, w.Code)
 	require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
+	require.Equal(t, "300", w.Header().Get("Retry-After"))
 	require.JSONEq(t, limited, w.Body.String())
 	w = get(tokenB, ip)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -84,6 +85,9 @@ func TestSCIMRateLimit(t *testing.T) {
 		w := send(tc.method, tc.path, "scim_invalid", ip)
 		require.Equal(t, http.StatusTooManyRequests, w.Code, tc.method+" "+tc.path)
 		require.JSONEq(t, limited, w.Body.String())
+		if tc.status == http.StatusOK {
+			require.Equal(t, "300", w.Header().Get("Retry-After"), tc.method+" "+tc.path)
+		}
 	}
 }
 
