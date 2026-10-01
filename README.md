@@ -218,7 +218,7 @@ Mounts the SCIM 2.0 routes at `/scim/v2` and the SCIM admin routes at `/admin/ss
 
 `GOTRUE_RATE_LIMIT_SCIM` - `number`
 
-Requests per 5 minutes to `/scim/v2`, with a burst of 30. Requests with a valid SCIM token are limited per SSO provider. Requests without a valid token, and requests to `/ServiceProviderConfig` or to an unknown route, are limited per IP. Defaults to 3000.
+Requests per 5 minutes to `/scim/v2`, with a burst of 30. Requests with a valid SCIM token are limited per SSO provider. Requests without a valid token, and requests to `/ServiceProviderConfig`, are limited per IP. Defaults to 3000.
 
 `GOTRUE_PASSWORD_MIN_LENGTH` - `int`
 
