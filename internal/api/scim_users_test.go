@@ -189,7 +189,7 @@ func (ts *SCIMTestSuite) TestReplaceRejectsStaleVersion() {
 	winner := &core.User{UserName: "alice@example.com", Title: "winner"}
 	winner.ID = read.ID
 	winner.Meta = core.Meta{Version: read.Meta.Version}
-	replaced, err := users.Replace(ctx, winner)
+	replaced, err := users.Update(ctx, winner)
 	require.NoError(ts.T(), err)
 	require.NotEqual(ts.T(), read.Meta.Version, replaced.Meta.Version)
 
@@ -197,7 +197,7 @@ func (ts *SCIMTestSuite) TestReplaceRejectsStaleVersion() {
 		loser := &core.User{UserName: "alice@example.com", Title: "loser"}
 		loser.ID = read.ID
 		loser.Meta = core.Meta{Version: version}
-		_, err = users.Replace(ctx, loser)
+		_, err = users.Update(ctx, loser)
 		var scimErr *scimerrors.Error
 		require.ErrorAs(ts.T(), err, &scimErr, version)
 		require.Equal(ts.T(), http.StatusPreconditionFailed, scimErr.StatusCode(), version)
@@ -206,7 +206,7 @@ func (ts *SCIMTestSuite) TestReplaceRejectsStaleVersion() {
 	missing := &core.User{UserName: "bob@example.com"}
 	missing.ID = uuid.Must(uuid.NewV4()).String()
 	missing.Meta = core.Meta{Version: read.Meta.Version}
-	_, err = users.Replace(ctx, missing)
+	_, err = users.Update(ctx, missing)
 	var scimErr *scimerrors.Error
 	require.ErrorAs(ts.T(), err, &scimErr)
 	require.Equal(ts.T(), http.StatusNotFound, scimErr.StatusCode())
@@ -225,7 +225,7 @@ func (ts *SCIMTestSuite) TestDeleteRejectsStaleVersion() {
 	updated := &core.User{UserName: "alice@example.com", Title: "renamed"}
 	updated.ID = created.ID
 	updated.Meta = core.Meta{Version: created.Meta.Version}
-	replaced, err := users.Replace(ctx, updated)
+	replaced, err := users.Update(ctx, updated)
 	require.NoError(ts.T(), err)
 
 	for _, version := range []string{created.Meta.Version, `W/"garbage"`} {

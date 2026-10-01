@@ -1,8 +1,10 @@
 package models
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgtype"
 	"github.com/pkg/errors"
 	"github.com/supabase/auth/internal/storage"
 )
@@ -103,17 +106,6 @@ func findSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarg
 		target.ID, target.ProviderID,
 	).First(row); err != nil {
 		return nil, table.wrapError(err, "finding")
-	}
-	return row, nil
-}
-
-func lockSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarget) (*T, error) {
-	row := new(T)
-	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT %s FROM %q WHERE %s AND "+scimVersionClause+" FOR UPDATE", table.columns, table.tableName, table.targetClause()),
-		target.ID, target.ProviderID, target.UpdatedAt, target.UpdatedAt,
-	).First(row); err != nil {
-		return nil, table.writeError(tx, target, err, "locking")
 	}
 	return row, nil
 }
@@ -251,4 +243,23 @@ func differenceUUIDs(from, subtract []uuid.UUID) []uuid.UUID {
 		}
 	}
 	return result
+}
+
+func sortedUniqueUUIDs(ids []uuid.UUID) []uuid.UUID {
+	sorted := slices.Clone(ids)
+	slices.SortFunc(sorted, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+	return slices.Compact(sorted)
+}
+
+func uuidArray(ids []uuid.UUID) *pgtype.UUIDArray {
+	array := &pgtype.UUIDArray{Elements: make([]pgtype.UUID, len(ids)), Status: pgtype.Present}
+	for i, id := range ids {
+		array.Elements[i] = pgtype.UUID{Bytes: id, Status: pgtype.Present}
+	}
+	length := len(ids)
+	if length == 0 || length > math.MaxInt32 {
+		return array
+	}
+	array.Dimensions = []pgtype.ArrayDimension{{Length: int32(length), LowerBound: 1}}
+	return array
 }

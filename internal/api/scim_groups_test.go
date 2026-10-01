@@ -386,6 +386,33 @@ func (ts *SCIMTestSuite) TestGroupsVersionChangesWhenMemberDeleted() {
 	require.Equal(ts.T(), http.StatusPreconditionFailed, w.Code, w.Body.String())
 }
 
+func (ts *SCIMTestSuite) TestGroupsVersionChangesOnMemberOnlyWrite() {
+	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
+	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
+	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", alice))
+	w, _ := ts.do(ts.TokenA, http.MethodGet, "/Groups/"+id, "")
+	stale := w.Header().Get("ETag")
+
+	var got map[string]any
+	entries := ts.auditDuring(func() {
+		w, got = ts.doAs(protocol.MediaType, ts.TokenA, http.MethodPut, "/Groups/"+id, groupWith("Engineering", "g-1", bob), "If-Match", stale)
+		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+	})
+	current := w.Header().Get("ETag")
+	require.NotEqual(ts.T(), stale, current)
+	require.Equal(ts.T(), []string{bob}, memberValues(got))
+	actions := []string{}
+	for _, entry := range entries {
+		actions = append(actions, entry.Payload["action"].(string))
+	}
+	require.ElementsMatch(ts.T(), []string{string(models.SCIMGroupMemberAddedAction), string(models.SCIMGroupMemberRemovedAction)}, actions)
+
+	w, _ = ts.do(ts.TokenA, http.MethodGet, "/Groups/"+id, "")
+	require.Equal(ts.T(), current, w.Header().Get("ETag"))
+	w, _ = ts.doAs(protocol.MediaType, ts.TokenA, http.MethodPut, "/Groups/"+id, groupWith("Engineering", "g-1", alice), "If-Match", stale)
+	require.Equal(ts.T(), http.StatusPreconditionFailed, w.Code, w.Body.String())
+}
+
 func (ts *SCIMTestSuite) TestUserDeleteWaitsForGroupWrite() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
@@ -399,7 +426,7 @@ func (ts *SCIMTestSuite) TestUserDeleteWaitsForGroupWrite() {
 			return err
 		},
 		func(tx *storage.Connection) error {
-			_, _, _, err := models.ReplaceSCIMGroupMembers(tx, group, []uuid.UUID{uuid.FromStringOrNil(bob)})
+			_, _, err := models.ReplaceSCIMGroupMembers(tx, group, []uuid.UUID{uuid.FromStringOrNil(bob)})
 			return err
 		},
 		http.MethodDelete, "/Users/"+alice, "",

@@ -80,7 +80,7 @@ func (s *scimUserRepository) Create(ctx context.Context, user *core.User) (*core
 	return s.save(db, change, s.create)
 }
 
-func (s *scimUserRepository) Replace(ctx context.Context, user *core.User) (*core.User, error) {
+func (s *scimUserRepository) Update(ctx context.Context, user *core.User) (*core.User, error) {
 	target, err := scimTarget(ctx, user.ID, user.Meta.Version)
 	if err != nil {
 		return nil, err
