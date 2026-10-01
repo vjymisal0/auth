@@ -89,7 +89,7 @@ func TouchSCIMGroup(tx *storage.Connection, group *SCIMGroup) (*SCIMGroup, error
 func DeleteSCIMGroup(tx *storage.Connection, target SCIMTarget) (*SCIMGroup, error) {
 	group := &SCIMGroup{}
 	err := tx.RawQuery(
-		fmt.Sprintf("DELETE FROM %q WHERE id = ? AND sso_provider_id = ? AND (?::timestamptz IS NULL OR updated_at = ?) RETURNING "+scimGroupColumns, scimGroupsTable.name),
+		fmt.Sprintf("DELETE FROM %q WHERE id = ? AND sso_provider_id = ? AND "+scimVersionClause+" RETURNING "+scimGroupColumns, scimGroupsTable.name),
 		target.ID, target.ProviderID, target.UpdatedAt, target.UpdatedAt,
 	).First(group)
 	if err != nil {

@@ -13,6 +13,8 @@ import (
 	"github.com/supabase/auth/internal/storage"
 )
 
+const scimVersionClause = "(?::timestamptz IS NULL OR updated_at = ?)"
+
 type SCIMFilter struct {
 	Name       *string
 	ExternalID *string
@@ -104,7 +106,7 @@ func findSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarg
 func findUnchangedSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarget, resource []byte) (*T, error) {
 	row := new(T)
 	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT %s FROM %q WHERE %s AND resource = ?::jsonb AND (?::timestamptz IS NULL OR updated_at = ?) FOR UPDATE", table.columns, table.name, table.targetClause()),
+		fmt.Sprintf("SELECT %s FROM %q WHERE %s AND resource = ?::jsonb AND "+scimVersionClause+" FOR UPDATE", table.columns, table.name, table.targetClause()),
 		target.ID, target.ProviderID, string(resource), target.UpdatedAt, target.UpdatedAt,
 	).First(row); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -118,7 +120,7 @@ func findUnchangedSCIMRow[T any](tx *storage.Connection, table scimTable, target
 func replaceSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarget, resource []byte) (*T, error) {
 	row := new(T)
 	if err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET resource = ?::jsonb, updated_at = now() WHERE %s AND (?::timestamptz IS NULL OR updated_at = ?) RETURNING %s", table.name, table.targetClause(), table.columns),
+		fmt.Sprintf("UPDATE %q SET resource = ?::jsonb, updated_at = now() WHERE %s AND "+scimVersionClause+" RETURNING %s", table.name, table.targetClause(), table.columns),
 		string(resource), target.ID, target.ProviderID, target.UpdatedAt, target.UpdatedAt,
 	).First(row); err != nil {
 		return nil, table.writeError(tx, target, err, "replacing")
