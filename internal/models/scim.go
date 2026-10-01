@@ -176,27 +176,6 @@ func isCheckViolation(err error, constraint string) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == pgerrcode.CheckViolation && pgErr.ConstraintName == constraint
 }
 
-func uuidArray(ids []uuid.UUID) string {
-	values := make([]string, len(ids))
-	for i, id := range ids {
-		values[i] = id.String()
-	}
-	return "{" + strings.Join(values, ",") + "}"
-}
-
-func dedupeUUIDs(ids []uuid.UUID) []uuid.UUID {
-	seen := make(map[uuid.UUID]struct{}, len(ids))
-	unique := make([]uuid.UUID, 0, len(ids))
-	for _, id := range ids {
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		unique = append(unique, id)
-	}
-	return unique
-}
-
 func differenceUUIDs(from, subtract []uuid.UUID) []uuid.UUID {
 	exclude := make(map[uuid.UUID]struct{}, len(subtract))
 	for _, id := range subtract {

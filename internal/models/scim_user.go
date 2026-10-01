@@ -97,7 +97,7 @@ func FindSCIMUserLinks(tx *storage.Connection, ids []uuid.UUID) (map[uuid.UUID]u
 	}{}
 	if err := tx.RawQuery(
 		fmt.Sprintf("SELECT id, user_id FROM %q WHERE id = ANY(?::uuid[]) AND user_id IS NOT NULL", (&SCIMUser{}).TableName()),
-		uuidArray(ids),
+		ids,
 	).All(&rows); err != nil {
 		return nil, errors.Wrap(err, "error finding SCIM user links")
 	}
