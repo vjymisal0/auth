@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -96,15 +97,12 @@ func (ts *SCIMTestSuite) TestOktaLifecycle() {
 	require.Equal(ts.T(), http.StatusOK, w.Code)
 	require.Equal(ts.T(), "Alice", got["name"].(map[string]any)["givenName"])
 
-	w, replaced := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, strings.Replace(oktaUser, `"givenName": "Alice"`, `"givenName": "Alicia"`, 1))
+	w, replaced := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, oktaUserWith("givenName", "Alicia"))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.Equal(ts.T(), "Alicia", replaced["name"].(map[string]any)["givenName"])
 	require.Equal(ts.T(), created["meta"].(map[string]any)["created"], replaced["meta"].(map[string]any)["created"])
 
-	w, patched := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+id, `{
-		"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-		"Operations": [{"op": "replace", "value": {"active": false}}]
-	}`)
+	w, patched := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+id, patchOp(`{"op": "replace", "value": {"active": false}}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.Equal(ts.T(), false, patched["active"])
 	require.NoError(ts.T(), ts.API.db.Q().Where("id = ?", id).First(&stored))
@@ -116,7 +114,7 @@ func (ts *SCIMTestSuite) TestOktaLifecycle() {
 	for _, tc := range []struct{ method, body string }{
 		{http.MethodGet, ""},
 		{http.MethodPut, oktaUser},
-		{http.MethodPatch, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","value":{"active":true}}]}`},
+		{http.MethodPatch, patchOp(`{"op":"replace","value":{"active":true}}`)},
 		{http.MethodDelete, ""},
 	} {
 		w, _ = ts.do(ts.TokenA, tc.method, "/Users/"+id, tc.body)
@@ -141,10 +139,7 @@ func (ts *SCIMTestSuite) TestOktaContentTypesAndReactivate() {
 		id := created["id"].(string)
 
 		for _, active := range []bool{false, true} {
-			w, patched := ts.doAs(contentType, ts.TokenA, http.MethodPatch, "/Users/"+id, `{
-				"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-				"Operations": [{"op": "replace", "value": {"active": `+strconv.FormatBool(active)+`}}]
-			}`)
+			w, patched := ts.doAs(contentType, ts.TokenA, http.MethodPatch, "/Users/"+id, patchOp(`{"op": "replace", "value": {"active": `+strconv.FormatBool(active)+`}}`))
 			require.Equal(ts.T(), http.StatusOK, w.Code, contentType+" "+w.Body.String())
 			require.Equal(ts.T(), active, patched["active"], contentType)
 		}
@@ -307,7 +302,7 @@ func (ts *SCIMTestSuite) TestAuditLog() {
 		`{"op":"replace","path":"active","value":false}`,
 		`{"op":"replace","path":"active","value":true}`,
 	} {
-		w, _ := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+id, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[`+operation+`]}`)
+		w, _ := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+id, patchOp(operation))
 		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	}
 
@@ -399,7 +394,7 @@ func (ts *SCIMTestSuite) TestSort() {
 	require.Equal(ts.T(), []string{"Alice@example.com"}, sorted(url.Values{"sortBy": {"userName"}, "count": {"1"}}))
 	require.Equal(ts.T(), []string{"bob@example.com"}, sorted(url.Values{"sortBy": {"userName"}, "startIndex": {"2"}, "count": {"1"}}))
 
-	_, body := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+ids["carol@example.com"], `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"title","value":"Lead"}]}`)
+	_, body := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+ids["carol@example.com"], patchOp(`{"op":"replace","path":"title","value":"Lead"}`))
 	require.Equal(ts.T(), "Lead", body["title"])
 	require.Equal(ts.T(), "carol@example.com", sorted(url.Values{"sortBy": {"meta.lastModified"}, "sortOrder": {"descending"}})[0])
 
@@ -465,13 +460,13 @@ func (ts *SCIMTestSuite) TestWriteResponseProjection() {
 	require.NotContains(ts.T(), got, "emails")
 	require.Equal(ts.T(), "a-2", got["externalId"])
 
-	w, got = ts.do(ts.TokenA, http.MethodPatch, "/Users/"+id+"?excludedAttributes=emails", `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"externalId","value":"a-3"}]}`)
+	w, got = ts.do(ts.TokenA, http.MethodPatch, "/Users/"+id+"?excludedAttributes=emails", patchOp(`{"op":"replace","path":"externalId","value":"a-3"}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.NotContains(ts.T(), got, "emails")
 	require.Equal(ts.T(), "a-3", got["externalId"])
 
 	group := ts.createGroup(ts.TokenA, groupWith("Engineering", ""))
-	w, got = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+group+"?attributes=displayName", `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"add","path":"members","value":[{"value":"`+id+`"}]}]}`)
+	w, got = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+group+"?attributes=displayName", patchOp(`{"op":"add","path":"members","value":[{"value":"`+id+`"}]}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.ElementsMatch(ts.T(), []string{"id", "schemas", "displayName"}, slices.Collect(maps.Keys(got)))
 
@@ -492,7 +487,7 @@ func (ts *SCIMTestSuite) TestETagAndIfMatch() {
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.Equal(ts.T(), stale, w.Header().Get("ETag"))
 
-	patch := `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"displayName","value":"Alice S."}]}`
+	patch := patchOp(`{"op":"replace","path":"displayName","value":"Alice S."}`)
 	w, patched := ts.doAs(protocol.MediaType, ts.TokenA, http.MethodPatch, "/Users/"+id, patch, "If-Match", stale)
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.Equal(ts.T(), "Alice S.", patched["displayName"])
@@ -519,11 +514,7 @@ func (ts *SCIMTestSuite) TestETagAndIfMatch() {
 func (ts *SCIMTestSuite) TestPatchAttributesOutsideTheMinimalSchema() {
 	id := ts.create(ts.TokenA, oktaUser)
 
-	patch := `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[
-		{"op":"replace","path":"title","value":"Engineer"},
-		{"op":"add","path":"phoneNumbers","value":[{"value":"555-0100","type":"work"}]},
-		{"op":"replace","path":"urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:department","value":"Auth"}
-	]}`
+	patch := patchOp(`{"op":"replace","path":"title","value":"Engineer"}`, `{"op":"add","path":"phoneNumbers","value":[{"value":"555-0100","type":"work"}]}`, `{"op":"replace","path":"urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:department","value":"Auth"}`)
 	w, patched := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+id, patch)
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.Equal(ts.T(), "Engineer", patched["title"])
@@ -724,9 +715,7 @@ func (ts *SCIMTestSuite) TestUsersGroupsAttribute() {
 	require.NotContains(ts.T(), replaced, "groups")
 	require.NotContains(ts.T(), storedResource(bob), "groups")
 
-	w, patched := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+alice, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[
-		{"op":"replace","path":"displayName","value":"Alice"}
-	]}`)
+	w, patched := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+alice, patchOp(`{"op":"replace","path":"displayName","value":"Alice"}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.Len(ts.T(), groupsOf(patched), 2)
 	require.NotContains(ts.T(), storedResource(alice), "groups")
@@ -737,4 +726,24 @@ func (ts *SCIMTestSuite) TestUsersGroupsAttribute() {
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.Len(ts.T(), groupsOf(got), 1)
 	require.Equal(ts.T(), eng, groupsOf(got)[0]["value"])
+}
+
+func oktaUserWith(field string, value any) string {
+	return withField(oktaUser, field, value)
+}
+
+func withField(body, field string, value any) string {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	match := regexp.MustCompile(`"` + regexp.QuoteMeta(field) + `": ("[^"]*"|true|false)`).FindStringIndex(body)
+	if match == nil {
+		panic("no " + field + " in body")
+	}
+	return body[:match[0]] + `"` + field + `": ` + string(encoded) + body[match[1]:]
+}
+
+func patchOp(ops ...string) string {
+	return `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[` + strings.Join(ops, ",") + `]}`
 }

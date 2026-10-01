@@ -81,17 +81,12 @@ func (ts *SCIMTestSuite) TestGroupsLifecycle() {
 	require.Equal(ts.T(), []string{bob}, memberValues(replaced))
 	require.Equal(ts.T(), meta["created"], replaced["meta"].(map[string]any)["created"])
 
-	w, patched := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[
-		{"op":"add","path":"members","value":[{"value":"`+alice+`"}]},
-		{"op":"replace","path":"displayName","value":"Platform"}
-	]}`)
+	w, patched := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"add","path":"members","value":[{"value":"`+alice+`"}]}`, `{"op":"replace","path":"displayName","value":"Platform"}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.ElementsMatch(ts.T(), []string{alice, bob}, memberValues(patched))
 	require.Equal(ts.T(), "Platform", patched["displayName"])
 
-	w, patched = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[
-		{"op":"remove","path":"members[value eq \"`+bob+`\"]"}
-	]}`)
+	w, patched = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"remove","path":"members[value eq \"`+bob+`\"]"}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.Equal(ts.T(), []string{alice}, memberValues(patched))
 
@@ -164,9 +159,7 @@ func (ts *SCIMTestSuite) TestPatchReplaceMembers() {
 	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "", alice, bob))
 	before := len(ts.scimAuditEntries())
 
-	w, got := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[
-		{"op":"replace","path":"members","value":[{"value":"`+bob+`"},{"value":"`+carol+`"}]}
-	]}`)
+	w, got := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"replace","path":"members","value":[{"value":"`+bob+`"},{"value":"`+carol+`"}]}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.ElementsMatch(ts.T(), []string{bob, carol}, memberValues(got))
 
@@ -194,7 +187,7 @@ func (ts *SCIMTestSuite) TestGroupMemberEventsCarryUserID() {
 	before := len(ts.scimAuditEntries())
 
 	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "", alice, bob))
-	w, _ := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"remove","path":"members[value eq \"`+alice+`\"]"}]}`)
+	w, _ := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"remove","path":"members[value eq \"`+alice+`\"]"}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	w, _ = ts.do(ts.TokenA, http.MethodDelete, "/Users/"+bob, "")
 	require.Equal(ts.T(), http.StatusNoContent, w.Code, w.Body.String())
@@ -242,7 +235,7 @@ func (ts *SCIMTestSuite) TestExcludedMembersKeepsWrites() {
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.NotContains(ts.T(), got, "groups")
 
-	w, _ = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id+"?excludedAttributes=members", `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"add","path":"members","value":[{"value":"`+carol+`"}]}]}`)
+	w, _ = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id+"?excludedAttributes=members", patchOp(`{"op":"add","path":"members","value":[{"value":"`+carol+`"}]}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	w, _ = ts.do(ts.TokenA, http.MethodPut, "/Groups/"+id+"?excludedAttributes=members", groupWith("Platform", "", alice, bob, carol))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
@@ -259,7 +252,7 @@ func (ts *SCIMTestSuite) TestPatchRemoveAbsentMember() {
 	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "", alice))
 	before := len(ts.auditActions(models.SCIMGroupMemberRemovedAction))
 
-	w, got := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"remove","path":"members[value eq \"`+bob+`\"]"}]}`)
+	w, got := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"remove","path":"members[value eq \"`+bob+`\"]"}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.Equal(ts.T(), []string{alice}, memberValues(got))
 	require.Len(ts.T(), ts.auditActions(models.SCIMGroupMemberRemovedAction), before)
@@ -274,7 +267,7 @@ func (ts *SCIMTestSuite) TestPatchRejectsRemoveWithValue() {
 		"/Groups/" + id:   `{"op":"Remove","path":"members","value":[{"$ref":null,"value":"` + bob + `"}]}`,
 		"/Users/" + alice: `{"op":"remove","path":"emails","value":[{"value":"alice@example.com"}]}`,
 	} {
-		w, got := ts.do(ts.TokenA, http.MethodPatch, path, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[`+body+`]}`)
+		w, got := ts.do(ts.TokenA, http.MethodPatch, path, patchOp(body))
 		require.Equal(ts.T(), http.StatusBadRequest, w.Code, path+" "+w.Body.String())
 		require.Equal(ts.T(), "invalidSyntax", got["scimType"], path)
 	}
@@ -286,9 +279,7 @@ func (ts *SCIMTestSuite) TestPatchRejectsRemoveWithValue() {
 	require.Equal(ts.T(), http.StatusOK, w.Code)
 	require.NotEmpty(ts.T(), got["emails"])
 
-	w, got = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[
-		{"op":"remove","path":"members[value eq \"`+bob+`\"]","value":null}
-	]}`)
+	w, got = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"remove","path":"members[value eq \"`+bob+`\"]","value":null}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.Equal(ts.T(), []string{alice}, memberValues(got))
 }
@@ -309,7 +300,7 @@ func (ts *SCIMTestSuite) TestGroupsETagAndIfMatch() {
 	id := created["id"].(string)
 	stale := w.Header().Get("ETag")
 
-	patch := `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"displayName","value":"Platform"}]}`
+	patch := patchOp(`{"op":"replace","path":"displayName","value":"Platform"}`)
 	w, _ = ts.doAs(protocol.MediaType, ts.TokenA, http.MethodPatch, "/Groups/"+id, patch, "If-Match", stale)
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	current := w.Header().Get("ETag")
@@ -433,14 +424,10 @@ func (ts *SCIMTestSuite) TestGroupsKeepDeactivatedMembers() {
 	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", alice))
 	before := len(ts.scimAuditEntries())
 
-	w, _ := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+alice, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[
-		{"op":"replace","path":"active","value":false}
-	]}`)
+	w, _ := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+alice, patchOp(`{"op":"replace","path":"active","value":false}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 
-	w, got := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[
-		{"op":"add","path":"members","value":[{"value":"`+bob+`"}]}
-	]}`)
+	w, got := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"add","path":"members","value":[{"value":"`+bob+`"}]}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.ElementsMatch(ts.T(), []string{alice, bob}, memberValues(got))
 
@@ -506,17 +493,10 @@ func (ts *SCIMTestSuite) TestGroupsAuditLog() {
 	w, _ = ts.do(ts.TokenA, http.MethodPost, "/Groups", groupWith("Invalid", "g-2", uuid.Must(uuid.NewV4()).String()))
 	require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
 
-	w, _ = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[
-		{"op":"add","path":"members","value":[{"value":"`+bob+`"}]},
-		{"op":"remove","path":"members[value eq \"`+alice+`\"]"},
-		{"op":"replace","path":"displayName","value":"Platform"}
-	]}`)
+	w, _ = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"add","path":"members","value":[{"value":"`+bob+`"}]}`, `{"op":"remove","path":"members[value eq \"`+alice+`\"]"}`, `{"op":"replace","path":"displayName","value":"Platform"}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 
-	w, _ = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[
-		{"op":"replace","path":"displayName","value":"Rejected"},
-		{"op":"add","path":"members","value":[{"value":"`+uuid.Must(uuid.NewV4()).String()+`"}]}
-	]}`)
+	w, _ = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"replace","path":"displayName","value":"Rejected"}`, `{"op":"add","path":"members","value":[{"value":"`+uuid.Must(uuid.NewV4()).String()+`"}]}`))
 	require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
 
 	w, _ = ts.do(ts.TokenA, http.MethodDelete, "/Groups/"+id, "")

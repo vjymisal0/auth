@@ -201,7 +201,7 @@ func (ts *SCIMTestSuite) TestOldEmailCannotSignInAfterEmailChange() {
 }
 
 func (ts *SCIMTestSuite) withEmail(email string) string {
-	return strings.Replace(oktaUser, `"value": "alice@example.com"`, `"value": "`+email+`"`, 1)
+	return oktaUserWith("value", email)
 }
 
 func (ts *SCIMTestSuite) TestReplaceChangesEmail() {
@@ -241,7 +241,7 @@ func (ts *SCIMTestSuite) TestReplaceRenamesAndChangesEmail() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 
-	body := strings.Replace(ts.withEmail("alice.smith@example.com"), `"userName": "Alice@Example.com"`, `"userName": "alice.smith@example.com"`, 1)
+	body := withField(ts.withEmail("alice.smith@example.com"), "userName", "alice.smith@example.com")
 	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, body)
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 
@@ -276,7 +276,7 @@ func (ts *SCIMTestSuite) TestReplaceAllowsEmailTakenInAnotherProvider() {
 }
 
 func (ts *SCIMTestSuite) TestRemovingEmailsKeepsUserEmail() {
-	id := ts.create(ts.TokenA, strings.Replace(oktaUser, `"userName": "Alice@Example.com"`, `"userName": "alice.smith"`, 1))
+	id := ts.create(ts.TokenA, oktaUserWith("userName", "alice.smith"))
 	user := ts.linkedUser(id)
 
 	for _, userName := range []string{"alice.smith", "asmith"} {
@@ -298,7 +298,7 @@ func (ts *SCIMTestSuite) TestCreateInactiveLogsOutWithoutBanning() {
 	existing := ts.ssoUser(ts.A, "Alice@Example.com", "alice@example.com")
 	ts.session(existing)
 
-	user := ts.linkedUser(ts.create(ts.TokenA, strings.Replace(oktaUser, `"active": true`, `"active": false`, 1)))
+	user := ts.linkedUser(ts.create(ts.TokenA, oktaUserWith("active", false)))
 
 	require.False(ts.T(), user.IsBanned())
 	require.Zero(ts.T(), ts.sessions(user))
@@ -307,7 +307,7 @@ func (ts *SCIMTestSuite) TestCreateInactiveLogsOutWithoutBanning() {
 func (ts *SCIMTestSuite) TestCreateRejectsSharedUser() {
 	ts.create(ts.TokenA, oktaUser)
 
-	w, body := ts.do(ts.TokenA, http.MethodPost, "/Users", strings.Replace(oktaUser, `"userName": "Alice@Example.com"`, `"userName": "alice.smith"`, 1))
+	w, body := ts.do(ts.TokenA, http.MethodPost, "/Users", oktaUserWith("userName", "alice.smith"))
 	require.Equal(ts.T(), http.StatusConflict, w.Code, w.Body.String())
 	require.Equal(ts.T(), "uniqueness", body["scimType"])
 	require.EqualValues(ts.T(), 0, ts.list(ts.TokenA, `userName eq "alice.smith"`)["totalResults"])
@@ -330,7 +330,7 @@ func (ts *SCIMTestSuite) TestCreateFallsBackToEmailUserName() {
 }
 
 func (ts *SCIMTestSuite) TestRejectsInvalidEmailsValue() {
-	invalid := strings.Replace(oktaUser, `"value": "alice@example.com"`, `"value": "not-an-email"`, 1)
+	invalid := oktaUserWith("value", "not-an-email")
 	w, body := ts.do(ts.TokenA, http.MethodPost, "/Users", invalid)
 	require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
 	require.Equal(ts.T(), "invalidValue", body["scimType"])
@@ -340,10 +340,7 @@ func (ts *SCIMTestSuite) TestRejectsInvalidEmailsValue() {
 	require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
 	require.Equal(ts.T(), "invalidValue", body["scimType"])
 
-	w, body = ts.do(ts.TokenA, http.MethodPatch, "/Users/"+id, `{
-		"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-		"Operations": [{"op": "replace", "path": "emails", "value": [{"value": "not-an-email", "primary": true}]}]
-	}`)
+	w, body = ts.do(ts.TokenA, http.MethodPatch, "/Users/"+id, patchOp(`{"op": "replace", "path": "emails", "value": [{"value": "not-an-email", "primary": true}]}`))
 	require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
 	require.Equal(ts.T(), "invalidValue", body["scimType"])
 	require.Equal(ts.T(), "alice@example.com", ts.linkedUser(id).GetEmail())
@@ -499,7 +496,7 @@ func (ts *SCIMTestSuite) TestSAMLLoginBlockedAfterDelete() {
 }
 
 func (ts *SCIMTestSuite) TestSAMLLoginBlockedWhenCreatedInactive() {
-	id := ts.create(ts.TokenA, strings.Replace(oktaUser, `"active": true`, `"active": false`, 1))
+	id := ts.create(ts.TokenA, oktaUserWith("active", false))
 	ts.linkedUser(id)
 
 	_, err := ts.samlLogin(ts.A, "Alice@Example.com", "alice@example.com")
@@ -582,11 +579,7 @@ func (ts *SCIMTestSuite) TestSAMLLoginAllowsJITWhileSCIMFlagOff() {
 
 func (ts *SCIMTestSuite) TestSAMLLoginNotBlockedByOtherProvider() {
 	id := ts.create(ts.TokenB, oktaUser)
-	w, _ := ts.do(ts.TokenB, http.MethodPatch, "/Users/"+id, `{
-		"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-		"Operations": [{"op": "replace", "value": {"active": false}}]
-	}`)
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+	ts.setActiveAs(ts.TokenB, id, false)
 
 	existing := ts.ssoUser(ts.A, "Alice@Example.com", "alice@example.com")
 	user, err := ts.samlLogin(ts.A, "Alice@Example.com", "alice@example.com")
@@ -725,10 +718,7 @@ func (ts *SCIMTestSuite) setActive(id string, active bool) {
 }
 
 func (ts *SCIMTestSuite) setActiveAs(token, id string, active bool) {
-	w, _ := ts.do(token, http.MethodPatch, "/Users/"+id, `{
-		"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-		"Operations": [{"op": "replace", "value": {"active": `+strconv.FormatBool(active)+`}}]
-	}`)
+	w, _ := ts.do(token, http.MethodPatch, "/Users/"+id, patchOp(`{"op": "replace", "value": {"active": `+strconv.FormatBool(active)+`}}`))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 }
 
@@ -759,7 +749,7 @@ func (ts *SCIMTestSuite) TestPutInactiveRevokesSessions() {
 	user := ts.linkedUser(id)
 	refreshToken := ts.refreshToken(user)
 
-	w, got := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, strings.Replace(oktaUser, `"active": true`, `"active": false`, 1))
+	w, got := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, oktaUserWith("active", false))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	require.Equal(ts.T(), false, got["active"])
 	require.Zero(ts.T(), ts.sessions(user))
@@ -779,7 +769,7 @@ func (ts *SCIMTestSuite) TestReplaceLinksUnlinkedRow() {
 	row, err := models.CreateSCIMUser(ts.API.db, ts.A.ID, []byte(`{"userName":"Alice@Example.com"}`))
 	require.NoError(ts.T(), err)
 
-	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+row.ID.String(), strings.Replace(oktaUser, `"active": true`, `"active": false`, 1))
+	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+row.ID.String(), oktaUserWith("active", false))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 
 	user := ts.linkedUser(row.ID.String())
@@ -803,7 +793,7 @@ func (ts *SCIMTestSuite) TestDeleteLogsOutWithoutBanning() {
 }
 
 func (ts *SCIMTestSuite) TestCreateRefusesUserDeletedByProvider() {
-	for _, body := range []string{oktaUser, strings.Replace(oktaUser, `"userName": "Alice@Example.com"`, `"userName": "alice.new@example.com"`, 1)} {
+	for _, body := range []string{oktaUser, oktaUserWith("userName", "alice.new@example.com")} {
 		ts.SetupTest()
 		id := ts.create(ts.TokenA, oktaUser)
 		user := ts.linkedUser(id)
@@ -874,7 +864,7 @@ func (ts *SCIMTestSuite) TestCreateConcurrentSameEmailLinksToOneUser() {
 }
 
 func (ts *SCIMTestSuite) rename(id, userName string) (int, string) {
-	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, strings.Replace(oktaUser, `"userName": "Alice@Example.com"`, `"userName": "`+userName+`"`, 1))
+	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, oktaUserWith("userName", userName))
 	return w.Code, w.Body.String()
 }
 

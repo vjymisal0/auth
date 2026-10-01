@@ -23,7 +23,7 @@ func (ts *SCIMTestSuite) TestTenantIsolation() {
 	for _, tc := range []struct{ method, body string }{
 		{http.MethodGet, ""},
 		{http.MethodPut, userWith("bob@example.com", "b-1")},
-		{http.MethodPatch, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","value":{"active":false}}]}`},
+		{http.MethodPatch, patchOp(`{"op":"replace","value":{"active":false}}`)},
 		{http.MethodDelete, ""},
 	} {
 		w, _ := ts.do(ts.TokenA, tc.method, "/Users/"+idB, tc.body)
@@ -105,13 +105,13 @@ func (ts *SCIMTestSuite) TestRevokedAndExpiredTokensRefusedEverywhere() {
 		{http.MethodPost, "/Users", userWith("bob@example.com", "b-1")},
 		{http.MethodGet, "/Users/" + user, ""},
 		{http.MethodPut, "/Users/" + user, userWith("alice@example.com", "a-2")},
-		{http.MethodPatch, "/Users/" + user, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","value":{"active":false}}]}`},
+		{http.MethodPatch, "/Users/" + user, patchOp(`{"op":"replace","value":{"active":false}}`)},
 		{http.MethodDelete, "/Users/" + user, ""},
 		{http.MethodGet, "/Groups", ""},
 		{http.MethodPost, "/Groups", groupWith("Platform", "g-2")},
 		{http.MethodGet, "/Groups/" + group, ""},
 		{http.MethodPut, "/Groups/" + group, groupWith("Owned", "g-1")},
-		{http.MethodPatch, "/Groups/" + group, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"displayName","value":"Owned"}]}`},
+		{http.MethodPatch, "/Groups/" + group, patchOp(`{"op":"replace","path":"displayName","value":"Owned"}`)},
 		{http.MethodDelete, "/Groups/" + group, ""},
 	}
 	for name, token := range map[string]string{"revoked": ts.TokenA, "expired": expiredToken} {
@@ -157,7 +157,7 @@ func (ts *SCIMTestSuite) TestGroupsTenantIsolation() {
 	for _, tc := range []struct{ method, body string }{
 		{http.MethodGet, ""},
 		{http.MethodPut, groupWith("Engineering", "g-1")},
-		{http.MethodPatch, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"displayName","value":"Owned"}]}`},
+		{http.MethodPatch, patchOp(`{"op":"replace","path":"displayName","value":"Owned"}`)},
 		{http.MethodDelete, ""},
 	} {
 		w, _ := ts.do(ts.TokenB, tc.method, "/Groups/"+groupA, tc.body)
@@ -179,7 +179,7 @@ func (ts *SCIMTestSuite) TestGroupsTenantIsolation() {
 
 	for _, tc := range []struct{ method, body string }{
 		{http.MethodPut, groupWith("Engineering", "g-1", aliceA, bobB)},
-		{http.MethodPatch, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"add","path":"members","value":[{"value":"` + bobB + `"}]}]}`},
+		{http.MethodPatch, patchOp(`{"op":"add","path":"members","value":[{"value":"` + bobB + `"}]}`)},
 	} {
 		w, body := ts.do(ts.TokenA, tc.method, "/Groups/"+groupA, tc.body)
 		require.Equal(ts.T(), http.StatusBadRequest, w.Code, tc.method+" "+w.Body.String())
