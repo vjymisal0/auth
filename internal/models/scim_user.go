@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -248,6 +249,22 @@ func RenameSCIMIdentity(tx *storage.Connection, userID uuid.UUID, provider, from
 	}
 	if count == 0 {
 		return SCIMIdentityNotFoundError{}
+	}
+	return nil
+}
+
+func LockAccountLinkingEmails(tx *storage.Connection, providerType string, emails []string) error {
+	keys := make([]string, 0, len(emails))
+	for _, email := range emails {
+		if email != "" {
+			keys = append(keys, strings.ToLower(email))
+		}
+	}
+	slices.Sort(keys)
+	for _, email := range slices.Compact(keys) {
+		if err := LockAccountLinking(tx, providerType, email); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -53,6 +53,16 @@ type AccountLinkingResult struct {
 	CandidateEmail provider.Email
 }
 
+func VerifiedEmails(config *conf.GlobalConfiguration, emails []provider.Email) []string {
+	var verified []string
+	for _, email := range emails {
+		if email.Verified || config.Mailer.Autoconfirm {
+			verified = append(verified, strings.ToLower(email.Email))
+		}
+	}
+	return verified
+}
+
 // DetermineAccountLinking uses the provided data and database state to compute a decision on whether:
 // - A new User should be created (CreateAccount)
 // - A new Identity should be created (LinkAccount) with a UserID pointing to an existing user account
@@ -61,12 +71,9 @@ type AccountLinkingResult struct {
 //
 // Errors signal failure in processing only, like database access errors.
 func DetermineAccountLinking(tx *storage.Connection, config *conf.GlobalConfiguration, emails []provider.Email, aud, providerName, sub string) (AccountLinkingResult, error) {
-	var verifiedEmails []string
+	verifiedEmails := VerifiedEmails(config, emails)
 	var candidateEmail provider.Email
 	for _, email := range emails {
-		if email.Verified || config.Mailer.Autoconfirm {
-			verifiedEmails = append(verifiedEmails, strings.ToLower(email.Email))
-		}
 		if email.Primary {
 			candidateEmail = email
 			candidateEmail.Email = strings.ToLower(email.Email)

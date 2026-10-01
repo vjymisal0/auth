@@ -309,6 +309,10 @@ func (ts *SCIMUsersTestSuite) samlLogin(ssoProvider *models.SSOProvider, sub, em
 			Verified: true,
 		}},
 	}
+	return ts.samlLoginWith(ssoProvider, userData)
+}
+
+func (ts *SCIMUsersTestSuite) samlLoginWith(ssoProvider *models.SSOProvider, userData *provider.UserProvidedData) (*models.User, error) {
 	r := httptest.NewRequest(http.MethodPost, "/sso/saml/acs", nil)
 
 	var user *models.User
@@ -318,6 +322,32 @@ func (ts *SCIMUsersTestSuite) samlLogin(ssoProvider *models.SSOProvider, sub, em
 		return terr
 	})
 	return user, err
+}
+
+func (ts *SCIMUsersTestSuite) TestSAMLLoginLocksVerifiedEmailWithoutMetadataEmail() {
+	userData := &provider.UserProvidedData{
+		Metadata: &provider.Claims{Subject: "saml-name-id", EmailVerified: true},
+		Emails:   []provider.Email{{Email: "Alice@Example.com", Primary: true, Verified: true}},
+	}
+	conn, err := ts.API.db.NewTransaction()
+	require.NoError(ts.T(), err)
+	tx := &storage.Connection{Connection: conn}
+	require.NoError(ts.T(), models.LockAccountLinking(tx, "sso:"+ts.A.ID.String(), "alice@example.com"))
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := ts.samlLoginWith(ts.A, userData)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(ts.T(), tx.TX.Rollback())
+		require.FailNow(ts.T(), "SAML login did not wait for the account linking lock", "%v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	require.NoError(ts.T(), tx.TX.Rollback())
+	require.NoError(ts.T(), <-done)
 }
 
 func (ts *SCIMUsersTestSuite) TestSAMLLoginAllowedForActiveSCIMUser() {
