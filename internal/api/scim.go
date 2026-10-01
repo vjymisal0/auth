@@ -34,6 +34,14 @@ const (
 
 var errMissingSSOProvider = errors.New("scim: request has no SSO provider")
 
+var (
+	scimUserSchemas = core.Schemas{
+		core.NewSchema(core.SchemaUser).With(core.UserAttributes()...),
+		core.NewSchema(core.SchemaEnterpriseUser).With(core.EnterpriseUserAttributes()...),
+	}
+	scimGroupSchemas = newSCIMGroupSchemas()
+)
+
 func (a *API) newSCIMServer(validate server.TokenValidator, limit func(http.Handler) http.Handler) *server.Server {
 	requireToken := server.RequireBearerToken(validate)
 	authenticate := func(next http.Handler) http.Handler {
@@ -55,14 +63,6 @@ func (a *API) newSCIMServer(validate server.TokenValidator, limit func(http.Hand
 	)
 }
 
-var (
-	scimUserSchemas = core.Schemas{
-		core.NewSchema(core.SchemaUser).With(core.UserAttributes()...),
-		core.NewSchema(core.SchemaEnterpriseUser).With(core.EnterpriseUserAttributes()...),
-	}
-	scimGroupSchemas = newSCIMGroupSchemas()
-)
-
 func newSCIMGroupSchemas() core.Schemas {
 	attributes := core.GroupAttributes()
 	for _, attribute := range attributes {
@@ -76,18 +76,6 @@ func newSCIMGroupSchemas() core.Schemas {
 		}
 	}
 	return core.Schemas{core.NewSchema(core.SchemaGroup).With(attributes...)}
-}
-
-func scimBaseURL(config *conf.GlobalConfiguration) string {
-	return strings.TrimRight(config.API.ExternalURL, "/") + scimBasePath
-}
-
-func scimTooManyRequests(w http.ResponseWriter, r *http.Request) error {
-	return protocol.SendError(w, errSCIMTooManyRequests())
-}
-
-func scimLogError(r *http.Request, err error) {
-	observability.GetLogEntry(r).Entry.WithError(err).Error("scim: request failed")
 }
 
 func newSCIMTokenValidator(db *storage.Connection) server.TokenValidator {
@@ -149,6 +137,24 @@ func (a *API) limitSCIMByProvider(lmt *limiter.Limiter) func(http.Handler) http.
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func (a *API) auditSCIM(tx *storage.Connection, r *http.Request, actor *models.User, action models.AuditAction, providerID uuid.UUID, traits map[string]any) error {
+	traits["sso_provider_id"] = providerID
+	traits["outcome"] = "success"
+	return models.NewAuditLogEntry(a.config.AuditLog, r, tx, actor, action, utilities.GetIPAddress(r), traits)
+}
+
+func scimBaseURL(config *conf.GlobalConfiguration) string {
+	return strings.TrimRight(config.API.ExternalURL, "/") + scimBasePath
+}
+
+func scimTooManyRequests(w http.ResponseWriter, r *http.Request) error {
+	return protocol.SendError(w, errSCIMTooManyRequests())
+}
+
+func scimLogError(r *http.Request, err error) {
+	observability.GetLogEntry(r).Entry.WithError(err).Error("scim: request failed")
 }
 
 func scimSearch(query *protocol.SearchRequest, schemas core.Schemas, name string) (models.SCIMQuery, error) {
@@ -298,12 +304,6 @@ func scimActor(r *http.Request) *models.User {
 		prefix = token.Prefix
 	}
 	return &models.User{Email: storage.NullString("scim:" + prefix)}
-}
-
-func (a *API) auditSCIM(tx *storage.Connection, r *http.Request, actor *models.User, action models.AuditAction, providerID uuid.UUID, traits map[string]any) error {
-	traits["sso_provider_id"] = providerID
-	traits["outcome"] = "success"
-	return models.NewAuditLogEntry(a.config.AuditLog, r, tx, actor, action, utilities.GetIPAddress(r), traits)
 }
 
 func scimMemberTraits(groupID, scimUserID uuid.UUID, userID *uuid.UUID) map[string]any {
