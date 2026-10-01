@@ -341,20 +341,37 @@ func (ts *SCIMTokensTestSuite) TestEnableWithZeroTokens() {
 	require.True(ts.T(), ts.status(http.MethodGet, provider).Enabled)
 }
 
-func (ts *SCIMTokensTestSuite) TestEnableAndDisableLeaveTokensUnchanged() {
-	ts.create(ts.Provider, map[string]any{})
+func (ts *SCIMTokensTestSuite) TestDisableRevokesActiveTokens() {
+	active := ts.create(ts.Provider, map[string]any{})
 	expiring := ts.create(ts.Provider, map[string]any{"expires_at": time.Now().Add(time.Hour)})
-	ts.revoke(ts.create(ts.Provider, map[string]any{}).Prefix)
-	before, err := models.FindSCIMTokensBySSOProvider(ts.API.db, ts.Provider.ID)
+	revoked := ts.create(ts.Provider, map[string]any{})
+	ts.revoke(revoked.Prefix)
+	otherProvider := createSSOProvider(ts.T(), ts.API.db)
+	ts.status(http.MethodPost, otherProvider)
+	other := ts.create(otherProvider, map[string]any{})
+	before, err := models.FindSCIMTokenByPrefix(ts.API.db, ts.Provider.ID, revoked.Prefix)
 	require.NoError(ts.T(), err)
-	require.NotNil(ts.T(), expiring.ExpiresAt)
 
-	for _, method := range []string{http.MethodDelete, http.MethodDelete, http.MethodPost, http.MethodPost} {
+	ts.status(http.MethodDelete, ts.Provider)
+	disabled, err := models.FindSCIMTokensBySSOProvider(ts.API.db, ts.Provider.ID)
+	require.NoError(ts.T(), err)
+
+	for _, method := range []string{http.MethodDelete, http.MethodPost, http.MethodPost} {
 		ts.status(method, ts.Provider)
 		after, err := models.FindSCIMTokensBySSOProvider(ts.API.db, ts.Provider.ID)
 		require.NoError(ts.T(), err)
-		require.Equal(ts.T(), before, after, method)
+		require.Equal(ts.T(), disabled, after, method)
 	}
+	require.Len(ts.T(), disabled, 3)
+	for _, token := range disabled {
+		require.True(ts.T(), token.IsRevoked(), token.Prefix)
+	}
+	after, err := models.FindSCIMTokenByPrefix(ts.API.db, ts.Provider.ID, revoked.Prefix)
+	require.NoError(ts.T(), err)
+	require.Equal(ts.T(), before.RevokedAt, after.RevokedAt)
+	require.Equal(ts.T(), http.StatusUnauthorized, ts.scimRequest(active.Token).Code)
+	require.Equal(ts.T(), http.StatusUnauthorized, ts.scimRequest(expiring.Token).Code)
+	require.Equal(ts.T(), http.StatusOK, ts.scimRequest(other.Token).Code)
 }
 
 func (ts *SCIMTokensTestSuite) TestDisableStopsAuthenticatedRequests() {
@@ -362,7 +379,7 @@ func (ts *SCIMTokensTestSuite) TestDisableStopsAuthenticatedRequests() {
 
 	status := ts.status(http.MethodDelete, ts.Provider)
 	require.False(ts.T(), status.Enabled)
-	require.Len(ts.T(), status.Tokens, 1)
+	require.Empty(ts.T(), status.Tokens)
 
 	for _, path := range []string{"/scim/v2/Users", "/scim/v2/Groups", "/scim/v2/Schemas", "/scim/v2/ResourceTypes", "/scim/v2/ServiceProviderConfig"} {
 		r := httptest.NewRequest(http.MethodGet, path, nil)
@@ -378,7 +395,7 @@ func (ts *SCIMTokensTestSuite) TestDisableStopsAuthenticatedRequests() {
 	}
 }
 
-func (ts *SCIMTokensTestSuite) TestReenableRestoresExistingTokens() {
+func (ts *SCIMTokensTestSuite) TestReenableKeepsOldTokensRevoked() {
 	token := ts.create(ts.Provider, map[string]any{})
 	require.Equal(ts.T(), http.StatusOK, ts.scimRequest(token.Token).Code)
 
@@ -387,7 +404,18 @@ func (ts *SCIMTokensTestSuite) TestReenableRestoresExistingTokens() {
 
 	status := ts.status(http.MethodPost, ts.Provider)
 	require.True(ts.T(), status.Enabled)
-	require.Equal(ts.T(), http.StatusOK, ts.scimRequest(token.Token).Code)
+	require.Empty(ts.T(), status.Tokens)
+	require.Equal(ts.T(), http.StatusUnauthorized, ts.scimRequest(token.Token).Code)
+	replacement := ts.create(ts.Provider, map[string]any{})
+	require.Equal(ts.T(), http.StatusOK, ts.scimRequest(replacement.Token).Code)
+
+	require.Equal(ts.T(), []scimTokenEvent{
+		{string(models.SCIMTokenCreatedAction), token.Prefix},
+		{string(models.SCIMTokenRevokedAction), token.Prefix},
+		{string(models.SCIMDisabledAction), token.Prefix},
+		{string(models.SCIMEnabledAction), ""},
+		{string(models.SCIMTokenCreatedAction), replacement.Prefix},
+	}, ts.tokenEvents())
 }
 
 func (ts *SCIMTokensTestSuite) TestMintAndRevokeWhileDisabled() {
@@ -422,7 +450,7 @@ func (ts *SCIMTokensTestSuite) TestStatusIndependentOfTokens() {
 	ts.status(http.MethodDelete, ts.Provider)
 	status := ts.status(http.MethodGet, ts.Provider)
 	require.False(ts.T(), status.Enabled)
-	require.Len(ts.T(), status.Tokens, 1)
+	require.Empty(ts.T(), status.Tokens)
 }
 
 func (ts *SCIMTokensTestSuite) TestConcurrentEnableAndDisable() {
@@ -514,7 +542,7 @@ func (ts *SCIMTokensTestSuite) tokenEvents() []scimTokenEvent {
 		require.Equal(ts.T(), ts.Provider.ID.String(), traits["sso_provider_id"])
 		require.Equal(ts.T(), "success", traits["outcome"])
 		prefix, _ := traits["token_prefix"].(string)
-		if prefixes, ok := traits["token_prefixes"].([]any); ok {
+		if prefixes, ok := traits["token_prefixes"].([]any); ok && len(prefixes) > 0 {
 			require.Len(ts.T(), prefixes, 1)
 			prefix = prefixes[0].(string)
 		}
