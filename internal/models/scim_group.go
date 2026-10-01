@@ -104,7 +104,7 @@ func FindSCIMGroupMembers(tx *storage.Connection, providerID uuid.UUID, groupIDs
 		return members, nil
 	}
 	err := tx.RawQuery(
-		fmt.Sprintf("SELECT m.group_id, m.scim_user_id, u.resource->>'userName' AS display FROM %q m JOIN %q u ON u.id = m.scim_user_id WHERE m.group_id = ANY(?::uuid[]) AND u.sso_provider_id = ? AND u.deleted_at IS NULL ORDER BY m.group_id, m.created_at, m.scim_user_id", SCIMGroupMember{}.TableName(), scimUsersTable.name),
+		fmt.Sprintf("SELECT m.group_id, m.scim_user_id FROM %q m JOIN %q u ON u.id = m.scim_user_id WHERE m.group_id = ANY(?::uuid[]) AND u.sso_provider_id = ? AND u.deleted_at IS NULL ORDER BY m.group_id, m.created_at, m.scim_user_id", SCIMGroupMember{}.TableName(), scimUsersTable.name),
 		groupIDs, providerID,
 	).All(&members)
 	if err != nil {

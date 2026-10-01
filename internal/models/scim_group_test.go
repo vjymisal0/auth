@@ -184,8 +184,7 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersDiffs() {
 	members, err := FindSCIMGroupMembers(ts.db, ts.provider.ID, []uuid.UUID{group.ID})
 	require.NoError(ts.T(), err)
 	require.Len(ts.T(), members, 2)
-	displays := []string{members[0].Display, members[1].Display}
-	require.ElementsMatch(ts.T(), []string{"bob", "carol"}, displays)
+	require.ElementsMatch(ts.T(), []uuid.UUID{bob.ID, carol.ID}, []uuid.UUID{members[0].SCIMUserID, members[1].SCIMUserID})
 
 	added, removed, err = ReplaceSCIMGroupMembers(ts.db, group, nil)
 	require.NoError(ts.T(), err)
