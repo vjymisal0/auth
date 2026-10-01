@@ -246,6 +246,7 @@ func (s *scimGroupRepository) memberEvents(tx *storage.Connection, r *http.Reque
 	if err != nil {
 		return nil, err
 	}
+	actor := scimActor(r)
 	events := make([]scimAuditEvent, 0, len(added)+len(removed))
 	for _, change := range []struct {
 		action models.AuditAction
@@ -260,7 +261,7 @@ func (s *scimGroupRepository) memberEvents(tx *storage.Connection, r *http.Reque
 				userID = &linked
 			}
 			events = append(events, scimAuditEvent{
-				actor:      scimActor(r),
+				actor:      actor,
 				action:     change.action,
 				providerID: row.SSOProviderID,
 				traits:     scimMemberTraits(row.ID, id, userID),

@@ -189,16 +189,12 @@ func lockLiveSCIMUserIDs(tx *storage.Connection, providerID uuid.UUID, ids []uui
 }
 
 func findSCIMGroupMemberIDs(tx *storage.Connection, groupID uuid.UUID) ([]uuid.UUID, error) {
-	members := []SCIMGroupMember{}
+	ids := []uuid.UUID{}
 	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT group_id, scim_user_id, created_at FROM %q WHERE group_id = ?", SCIMGroupMember{}.TableName()),
+		fmt.Sprintf("SELECT scim_user_id FROM %q WHERE group_id = ?", SCIMGroupMember{}.TableName()),
 		groupID,
-	).All(&members); err != nil {
+	).All(&ids); err != nil {
 		return nil, errors.Wrap(err, "error finding SCIM group members")
-	}
-	ids := make([]uuid.UUID, len(members))
-	for i := range members {
-		ids[i] = members[i].SCIMUserID
 	}
 	return ids, nil
 }
