@@ -782,40 +782,50 @@ func (ts *SCIMTestSuite) TestDeleteLogsOutWithoutBanning() {
 	require.Equal(ts.T(), http.StatusBadRequest, ts.refresh(refreshToken))
 }
 
-func (ts *SCIMTestSuite) TestCreateRefusesUserDeletedByProvider() {
-	for _, body := range []string{oktaUser, oktaUserWith("userName", "alice.new@example.com")} {
-		ts.SetupTest()
-		id := ts.create(ts.TokenA, oktaUser)
-		user := ts.linkedUser(id)
-		w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+id, "")
-		require.Equal(ts.T(), http.StatusNoContent, w.Code)
-
-		w, got := ts.do(ts.TokenA, http.MethodPost, "/Users", body)
-
-		require.Equal(ts.T(), http.StatusConflict, w.Code, w.Body.String())
-		require.Equal(ts.T(), "uniqueness", got["scimType"])
-		require.False(ts.T(), ts.reloadUser(user.ID).IsBanned())
-		require.Zero(ts.T(), ts.countRows(&models.SCIMUser{}, "user_id = ? AND deleted_at IS NULL", user.ID))
-		require.Len(ts.T(), ts.identities(user), 1)
-		require.Equal(ts.T(), 1, ts.users("alice@example.com"))
-	}
+func (ts *SCIMTestSuite) TestCreateRefusesUserDeletedByProviderSameUserName() {
+	ts.requireCreateRefusedAfterProviderDelete(oktaUser)
 }
 
-func (ts *SCIMTestSuite) TestCreateAfterAdminDeletesProviderDeletedUser() {
-	for _, soft := range []bool{false, true} {
-		ts.SetupTest()
-		id := ts.create(ts.TokenA, oktaUser)
-		user := ts.linkedUser(id)
-		w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+id, "")
-		require.Equal(ts.T(), http.StatusNoContent, w.Code)
-		w = serveAdmin(ts.T(), ts.API, http.MethodDelete, "/admin/users/"+user.ID.String(), map[string]any{"should_soft_delete": soft})
-		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+func (ts *SCIMTestSuite) TestCreateRefusesUserDeletedByProviderNewUserName() {
+	ts.requireCreateRefusedAfterProviderDelete(oktaUserWith("userName", "alice.new@example.com"))
+}
 
-		created := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
+func (ts *SCIMTestSuite) requireCreateRefusedAfterProviderDelete(body string) {
+	id := ts.create(ts.TokenA, oktaUser)
+	user := ts.linkedUser(id)
+	w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+id, "")
+	require.Equal(ts.T(), http.StatusNoContent, w.Code)
 
-		require.NotEqual(ts.T(), user.ID, created.ID, soft)
-		require.True(ts.T(), created.IsSSOUser, soft)
-	}
+	w, got := ts.do(ts.TokenA, http.MethodPost, "/Users", body)
+
+	require.Equal(ts.T(), http.StatusConflict, w.Code, w.Body.String())
+	require.Equal(ts.T(), "uniqueness", got["scimType"])
+	require.False(ts.T(), ts.reloadUser(user.ID).IsBanned())
+	require.Zero(ts.T(), ts.countRows(&models.SCIMUser{}, "user_id = ? AND deleted_at IS NULL", user.ID))
+	require.Len(ts.T(), ts.identities(user), 1)
+	require.Equal(ts.T(), 1, ts.users("alice@example.com"))
+}
+
+func (ts *SCIMTestSuite) TestCreateAfterAdminHardDeletesProviderDeletedUser() {
+	ts.requireCreateAfterAdminDelete(false)
+}
+
+func (ts *SCIMTestSuite) TestCreateAfterAdminSoftDeletesProviderDeletedUser() {
+	ts.requireCreateAfterAdminDelete(true)
+}
+
+func (ts *SCIMTestSuite) requireCreateAfterAdminDelete(soft bool) {
+	id := ts.create(ts.TokenA, oktaUser)
+	user := ts.linkedUser(id)
+	w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+id, "")
+	require.Equal(ts.T(), http.StatusNoContent, w.Code)
+	w = serveAdmin(ts.T(), ts.API, http.MethodDelete, "/admin/users/"+user.ID.String(), map[string]any{"should_soft_delete": soft})
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+
+	created := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
+
+	require.NotEqual(ts.T(), user.ID, created.ID, soft)
+	require.True(ts.T(), created.IsSSOUser, soft)
 }
 
 func (ts *SCIMTestSuite) TestCreateConcurrentSameEmailLinksToOneUser() {
