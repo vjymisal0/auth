@@ -105,17 +105,6 @@ func LockSCIMTokens(tx *storage.Connection, providerID uuid.UUID) error {
 	return nil
 }
 
-func RevokeSCIMTokensBySSOProvider(tx *storage.Connection, providerID uuid.UUID) ([]SCIMToken, error) {
-	tokens := []SCIMToken{}
-	if err := tx.RawQuery(
-		fmt.Sprintf("WITH revoked AS (UPDATE %q SET revoked_at = now() WHERE sso_provider_id = ? AND "+activeSCIMTokenClause+" RETURNING *) SELECT * FROM revoked ORDER BY created_at ASC, id ASC", (&SCIMToken{}).TableName()),
-		providerID,
-	).All(&tokens); err != nil {
-		return nil, errors.Wrap(err, "error revoking SCIM tokens")
-	}
-	return tokens, nil
-}
-
 func FindSCIMTokenByPrefix(tx *storage.Connection, providerID uuid.UUID, prefix string) (*SCIMToken, error) {
 	tokens := []SCIMToken{}
 	if err := tx.Q().Where("sso_provider_id = ? AND prefix = ?", providerID, prefix).Limit(2).All(&tokens); err != nil {

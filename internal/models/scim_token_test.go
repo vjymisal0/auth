@@ -266,34 +266,3 @@ func (ts *SCIMTokenTestSuite) TestFindActiveBySSOProvider() {
 	require.NoError(ts.T(), err)
 	require.Empty(ts.T(), tokens)
 }
-
-func (ts *SCIMTokenTestSuite) TestRevokeBySSOProvider() {
-	first, _ := ts.createToken(nil)
-	second, _ := ts.createToken(nil)
-	revoked, _ := ts.createToken(nil)
-	require.NoError(ts.T(), revoked.Revoke(ts.db))
-	expired, _ := ts.createToken(nil)
-	ts.expire(expired)
-	other, _, err := CreateSCIMToken(ts.db, ts.createProvider(), nil)
-	require.NoError(ts.T(), err)
-
-	tokens, err := RevokeSCIMTokensBySSOProvider(ts.db, ts.provider.ID)
-	require.NoError(ts.T(), err)
-	require.Len(ts.T(), tokens, 2)
-	require.Equal(ts.T(), []uuid.UUID{first.ID, second.ID}, []uuid.UUID{tokens[0].ID, tokens[1].ID})
-	for _, token := range tokens {
-		require.NotNil(ts.T(), token.RevokedAt)
-	}
-
-	active, err := FindActiveSCIMTokensBySSOProvider(ts.db, ts.provider.ID)
-	require.NoError(ts.T(), err)
-	require.Empty(ts.T(), active)
-
-	tokens, err = RevokeSCIMTokensBySSOProvider(ts.db, ts.provider.ID)
-	require.NoError(ts.T(), err)
-	require.Empty(ts.T(), tokens)
-
-	still, err := FindActiveSCIMTokensBySSOProvider(ts.db, other.SSOProviderID)
-	require.NoError(ts.T(), err)
-	require.Len(ts.T(), still, 1)
-}

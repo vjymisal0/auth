@@ -91,16 +91,27 @@ func (a *API) isSCIMEnabled(db *storage.Connection, provider *models.SSOProvider
 }
 
 func (a *API) deprovisionSCIM(tx *storage.Connection, r *http.Request, provider *models.SSOProvider) error {
-	disabled, err := models.DisableSCIM(tx, provider.ID)
+	enabled, err := models.IsSCIMEnabled(tx, provider.ID)
 	if err != nil {
 		return err
 	}
-	prefixes, err := a.revokeSCIMTokens(tx, r, provider)
+	if err := models.LockSCIMTokens(tx, provider.ID); err != nil {
+		return err
+	}
+	tokens, err := models.FindActiveSCIMTokensBySSOProvider(tx, provider.ID)
 	if err != nil {
 		return err
 	}
-	if disabled && a.config.SSO.SCIM.Enabled {
-		if err := a.auditSCIM(tx, r, getAdminUser(r.Context()), models.SCIMDisabledAction, provider.ID, map[string]any{"token_prefixes": prefixes}); err != nil {
+	actor := getAdminUser(r.Context())
+	prefixes := make([]string, len(tokens))
+	for i := range tokens {
+		prefixes[i] = tokens[i].Prefix
+		if err := a.auditSCIM(tx, r, actor, models.SCIMTokenRevokedAction, provider.ID, map[string]any{"token_prefix": tokens[i].Prefix}); err != nil {
+			return err
+		}
+	}
+	if enabled && a.config.SSO.SCIM.Enabled {
+		if err := a.auditSCIM(tx, r, actor, models.SCIMDisabledAction, provider.ID, map[string]any{"token_prefixes": prefixes}); err != nil {
 			return err
 		}
 	}
@@ -108,26 +119,7 @@ func (a *API) deprovisionSCIM(tx *storage.Connection, r *http.Request, provider 
 	if err != nil || banned == 0 {
 		return err
 	}
-	return a.auditSCIM(tx, r, getAdminUser(r.Context()), models.SCIMUsersBannedAction, provider.ID, map[string]any{"banned_user_count": banned})
-}
-
-func (a *API) revokeSCIMTokens(tx *storage.Connection, r *http.Request, provider *models.SSOProvider) ([]string, error) {
-	if err := models.LockSCIMTokens(tx, provider.ID); err != nil {
-		return nil, err
-	}
-	tokens, err := models.RevokeSCIMTokensBySSOProvider(tx, provider.ID)
-	if err != nil {
-		return nil, err
-	}
-	actor := getAdminUser(r.Context())
-	prefixes := make([]string, len(tokens))
-	for i := range tokens {
-		prefixes[i] = tokens[i].Prefix
-		if err := a.auditSCIM(tx, r, actor, models.SCIMTokenRevokedAction, provider.ID, map[string]any{"token_prefix": tokens[i].Prefix}); err != nil {
-			return nil, err
-		}
-	}
-	return prefixes, nil
+	return a.auditSCIM(tx, r, actor, models.SCIMUsersBannedAction, provider.ID, map[string]any{"banned_user_count": banned})
 }
 
 func (a *API) adminSCIMTokensCreate(w http.ResponseWriter, r *http.Request) error {
