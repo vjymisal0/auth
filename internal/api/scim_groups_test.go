@@ -494,66 +494,6 @@ func (ts *SCIMUsersTestSuite) TestGroupsUnknownID() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestUsersGroupsAttribute() {
-	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
-	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
-	ops := ts.createGroup(ts.TokenA, groupWith("Ops", "g-2", alice))
-	eng := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", alice))
-
-	groupsOf := func(user map[string]any) []map[string]any {
-		found := []map[string]any{}
-		groups, _ := user["groups"].([]any)
-		for _, group := range groups {
-			found = append(found, group.(map[string]any))
-		}
-		return found
-	}
-	storedResource := func(id string) string {
-		var stored models.SCIMUser
-		require.NoError(ts.T(), ts.API.db.Q().Where("id = ?", id).First(&stored))
-		return string(stored.Resource)
-	}
-
-	w, got := ts.do(ts.TokenA, http.MethodGet, "/Users/"+alice, "")
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
-	require.Equal(ts.T(), []map[string]any{
-		{"value": eng, "$ref": "http://localhost:9999/scim/v2/Groups/" + eng, "display": "Engineering", "type": "direct"},
-		{"value": ops, "$ref": "http://localhost:9999/scim/v2/Groups/" + ops, "display": "Ops", "type": "direct"},
-	}, groupsOf(got))
-
-	w, got = ts.do(ts.TokenA, http.MethodGet, "/Users/"+bob, "")
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
-	require.NotContains(ts.T(), got, "groups")
-
-	listed := ts.list(ts.TokenA, `userName eq "alice@example.com"`)
-	require.Len(ts.T(), groupsOf(listed["Resources"].([]any)[0].(map[string]any)), 2)
-
-	claimed := `[{"value":"` + ops + `","display":"Forged"}]`
-	w, created := ts.do(ts.TokenA, http.MethodPost, "/Users", `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"carol@example.com","emails":[{"primary":true,"value":"carol@example.com"}],"groups":`+claimed+`}`)
-	require.Equal(ts.T(), http.StatusCreated, w.Code, w.Body.String())
-	require.NotContains(ts.T(), created, "groups")
-	require.NotContains(ts.T(), storedResource(created["id"].(string)), "groups")
-
-	w, replaced := ts.do(ts.TokenA, http.MethodPut, "/Users/"+bob, `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"bob@example.com","groups":`+claimed+`}`)
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
-	require.NotContains(ts.T(), replaced, "groups")
-	require.NotContains(ts.T(), storedResource(bob), "groups")
-
-	w, patched := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+alice, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[
-		{"op":"replace","path":"displayName","value":"Alice"}
-	]}`)
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
-	require.Len(ts.T(), groupsOf(patched), 2)
-	require.NotContains(ts.T(), storedResource(alice), "groups")
-
-	w, _ = ts.do(ts.TokenA, http.MethodDelete, "/Groups/"+ops, "")
-	require.Equal(ts.T(), http.StatusNoContent, w.Code, w.Body.String())
-	w, got = ts.do(ts.TokenA, http.MethodGet, "/Users/"+alice, "")
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
-	require.Len(ts.T(), groupsOf(got), 1)
-	require.Equal(ts.T(), eng, groupsOf(got)[0]["value"])
-}
-
 func (ts *SCIMUsersTestSuite) TestGroupsAuditLog() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))

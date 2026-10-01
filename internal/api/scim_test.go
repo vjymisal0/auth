@@ -463,39 +463,6 @@ func TestSCIMServer(t *testing.T) {
 	})
 }
 
-func TestSCIMUserFields(t *testing.T) {
-	t.Run("has no email without emails", func(t *testing.T) {
-		require.Empty(t, scimPrimaryEmail(nil))
-	})
-
-	t.Run("prefers the primary email", func(t *testing.T) {
-		require.Equal(t, "home@example.com", scimPrimaryEmail([]scimCore.Email{
-			{Value: "work@example.com"},
-			{Value: "home@example.com", Primary: new(true)},
-		}))
-	})
-
-	t.Run("falls back to the first email", func(t *testing.T) {
-		require.Equal(t, "work@example.com", scimPrimaryEmail([]scimCore.Email{{Value: "work@example.com"}, {Value: "home@example.com"}}))
-	})
-
-	t.Run("drops id, meta and password from the resource", func(t *testing.T) {
-		user := &scimCore.User{UserName: "alice", Password: "secret"}
-		user.ID = "abc"
-		user.Meta = scimCore.Meta{Version: `W/"1"`}
-
-		encoded, err := scimUserResource(user)
-		require.NoError(t, err)
-
-		resource := map[string]any{}
-		require.NoError(t, json.Unmarshal(encoded, &resource))
-		require.NotContains(t, resource, "id")
-		require.NotContains(t, resource, "meta")
-		require.NotContains(t, resource, "password")
-		require.Equal(t, "alice", resource["userName"])
-	})
-}
-
 type SCIMUsersTestSuite struct {
 	suite.Suite
 	API    *API

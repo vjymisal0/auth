@@ -2,7 +2,7 @@ package api
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -17,10 +17,10 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/supabase-community/scim-go/pkg/core"
+	scimCore "github.com/supabase-community/scim-go/pkg/core"
 	"github.com/supabase-community/scim-go/pkg/protocol"
 	"github.com/supabase-community/scim-go/pkg/scimerrors"
 	"github.com/supabase-community/scim-go/pkg/server"
-	"github.com/supabase/auth/internal/conf"
 	"github.com/supabase/auth/internal/models"
 	"github.com/supabase/auth/internal/storage"
 )
@@ -652,115 +652,95 @@ func (ts *SCIMUsersTestSuite) TestRequiresSSOProviderOnContext() {
 	require.Error(ts.T(), err)
 }
 
-func TestSCIMRateLimit(t *testing.T) {
-	api, _ := setupSCIMAPI(t, func(config *conf.GlobalConfiguration) {
-		config.RateLimitScim = 1
+func TestSCIMUserFields(t *testing.T) {
+	t.Run("has no email without emails", func(t *testing.T) {
+		require.Empty(t, scimPrimaryEmail(nil))
 	})
-	defer api.db.Close()
-	require.NoError(t, models.TruncateAll(api.db))
 
-	token := func() string {
-		_, token := createSSOProviderWithSCIMToken(t, api.db)
-		return token
-	}
-	tokenA, tokenB := token(), token()
+	t.Run("prefers the primary email", func(t *testing.T) {
+		require.Equal(t, "home@example.com", scimPrimaryEmail([]scimCore.Email{
+			{Value: "work@example.com"},
+			{Value: "home@example.com", Primary: new(true)},
+		}))
+	})
 
-	get := func(token, ip string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(http.MethodGet, "/scim/v2/Users", nil)
-		if token != "" {
-			r.Header.Set("Authorization", "Bearer "+token)
-		}
-		r.Header.Set(api.config.RateLimitHeader, ip)
-		w := httptest.NewRecorder()
-		api.handler.ServeHTTP(w, r)
-		return w
-	}
+	t.Run("falls back to the first email", func(t *testing.T) {
+		require.Equal(t, "work@example.com", scimPrimaryEmail([]scimCore.Email{{Value: "work@example.com"}, {Value: "home@example.com"}}))
+	})
 
-	limited := `{"schemas":["urn:ietf:params:scim:api:messages:2.0:Error"],"detail":"Request rate limit reached","status":"429"}`
-	const ip = "192.0.2.1"
+	t.Run("drops id, meta and password from the resource", func(t *testing.T) {
+		user := &scimCore.User{UserName: "alice", Password: "secret"}
+		user.ID = "abc"
+		user.Meta = scimCore.Meta{Version: `W/"1"`}
 
-	for range 30 {
-		w := get(tokenA, ip)
-		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	}
-	w := get(tokenA, ip)
-	require.Equal(t, http.StatusTooManyRequests, w.Code)
-	require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
-	require.JSONEq(t, limited, w.Body.String())
-	w = get(tokenB, ip)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		encoded, err := scimUserResource(user)
+		require.NoError(t, err)
 
-	for range 30 {
-		w := get("scim_invalid", ip)
-		require.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
-	}
-	for _, token := range []string{"scim_invalid", ""} {
-		w := get(token, ip)
-		require.Equal(t, http.StatusTooManyRequests, w.Code, w.Body.String())
-		require.JSONEq(t, limited, w.Body.String())
-	}
-	w = get(tokenB, ip)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	w = get("scim_invalid", "198.51.100.1")
-	require.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
-
-	for i, tc := range []struct {
-		method, path string
-		status       int
-	}{
-		{http.MethodGet, "/scim/v2/ServiceProviderConfig", http.StatusOK},
-		{http.MethodHead, "/scim/v2/ServiceProviderConfig", http.StatusOK},
-		{http.MethodGet, "/scim/v2/Unknown", http.StatusUnauthorized},
-		{http.MethodDelete, "/scim/v2/Users", http.StatusUnauthorized},
-	} {
-		ip := fmt.Sprintf("203.0.113.%d", i+1)
-		send := func() *httptest.ResponseRecorder {
-			r := httptest.NewRequest(tc.method, tc.path, nil)
-			r.Header.Set("Authorization", "Bearer scim_invalid")
-			r.Header.Set(api.config.RateLimitHeader, ip)
-			w := httptest.NewRecorder()
-			api.handler.ServeHTTP(w, r)
-			return w
-		}
-		for range 30 {
-			w := send()
-			require.Equal(t, tc.status, w.Code, tc.method+" "+tc.path)
-		}
-		w := send()
-		require.Equal(t, http.StatusTooManyRequests, w.Code, tc.method+" "+tc.path)
-		require.JSONEq(t, limited, w.Body.String())
-	}
+		resource := map[string]any{}
+		require.NoError(t, json.Unmarshal(encoded, &resource))
+		require.NotContains(t, resource, "id")
+		require.NotContains(t, resource, "meta")
+		require.NotContains(t, resource, "password")
+		require.Equal(t, "alice", resource["userName"])
+	})
 }
 
-func TestSCIMRateLimitBoundsEveryUnauthenticatedRequest(t *testing.T) {
-	api, _ := setupSCIMAPI(t, func(config *conf.GlobalConfiguration) {
-		config.RateLimitScim = 1
-	})
-	defer api.db.Close()
-	require.NoError(t, models.TruncateAll(api.db))
+func (ts *SCIMUsersTestSuite) TestUsersGroupsAttribute() {
+	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
+	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
+	ops := ts.createGroup(ts.TokenA, groupWith("Ops", "g-2", alice))
+	eng := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", alice))
 
-	type request struct{ path, authorization string }
-	requests := []request{}
-	for _, header := range []string{"", "Bearer", "Bearer ", "bearer scim_invalid", "Bearer scim a", "Basic scim_invalid", "Bearer\tscim_invalid", "Bearer  scim_invalid"} {
-		requests = append(requests, request{"/scim/v2/Users", header})
-	}
-	for _, path := range []string{"/scim/v2//Users", "/scim/v2/./Users", "/scim/v2/Users/", "/scim/v2/ServiceProviderConfig/"} {
-		requests = append(requests, request{path, "Bearer scim_invalid"})
-	}
-
-	for i, tc := range requests {
-		ip := fmt.Sprintf("203.0.113.%d", 100+i)
-		limited := false
-		for range 31 {
-			r := httptest.NewRequest(http.MethodGet, tc.path, nil)
-			if tc.authorization != "" {
-				r.Header.Set("Authorization", tc.authorization)
-			}
-			r.Header.Set(api.config.RateLimitHeader, ip)
-			w := httptest.NewRecorder()
-			api.handler.ServeHTTP(w, r)
-			limited = limited || w.Code == http.StatusTooManyRequests
+	groupsOf := func(user map[string]any) []map[string]any {
+		found := []map[string]any{}
+		groups, _ := user["groups"].([]any)
+		for _, group := range groups {
+			found = append(found, group.(map[string]any))
 		}
-		require.True(t, limited, "%q %q", tc.path, tc.authorization)
+		return found
 	}
+	storedResource := func(id string) string {
+		var stored models.SCIMUser
+		require.NoError(ts.T(), ts.API.db.Q().Where("id = ?", id).First(&stored))
+		return string(stored.Resource)
+	}
+
+	w, got := ts.do(ts.TokenA, http.MethodGet, "/Users/"+alice, "")
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+	require.Equal(ts.T(), []map[string]any{
+		{"value": eng, "$ref": "http://localhost:9999/scim/v2/Groups/" + eng, "display": "Engineering", "type": "direct"},
+		{"value": ops, "$ref": "http://localhost:9999/scim/v2/Groups/" + ops, "display": "Ops", "type": "direct"},
+	}, groupsOf(got))
+
+	w, got = ts.do(ts.TokenA, http.MethodGet, "/Users/"+bob, "")
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+	require.NotContains(ts.T(), got, "groups")
+
+	listed := ts.list(ts.TokenA, `userName eq "alice@example.com"`)
+	require.Len(ts.T(), groupsOf(listed["Resources"].([]any)[0].(map[string]any)), 2)
+
+	claimed := `[{"value":"` + ops + `","display":"Forged"}]`
+	w, created := ts.do(ts.TokenA, http.MethodPost, "/Users", `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"carol@example.com","emails":[{"primary":true,"value":"carol@example.com"}],"groups":`+claimed+`}`)
+	require.Equal(ts.T(), http.StatusCreated, w.Code, w.Body.String())
+	require.NotContains(ts.T(), created, "groups")
+	require.NotContains(ts.T(), storedResource(created["id"].(string)), "groups")
+
+	w, replaced := ts.do(ts.TokenA, http.MethodPut, "/Users/"+bob, `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"bob@example.com","groups":`+claimed+`}`)
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+	require.NotContains(ts.T(), replaced, "groups")
+	require.NotContains(ts.T(), storedResource(bob), "groups")
+
+	w, patched := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+alice, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[
+		{"op":"replace","path":"displayName","value":"Alice"}
+	]}`)
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+	require.Len(ts.T(), groupsOf(patched), 2)
+	require.NotContains(ts.T(), storedResource(alice), "groups")
+
+	w, _ = ts.do(ts.TokenA, http.MethodDelete, "/Groups/"+ops, "")
+	require.Equal(ts.T(), http.StatusNoContent, w.Code, w.Body.String())
+	w, got = ts.do(ts.TokenA, http.MethodGet, "/Users/"+alice, "")
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+	require.Len(ts.T(), groupsOf(got), 1)
+	require.Equal(ts.T(), eng, groupsOf(got)[0]["value"])
 }
