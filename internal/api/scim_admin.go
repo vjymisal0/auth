@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	scimProviderDeletedBan = 100 * 365 * 24 * time.Hour
-	scimTokenPrefixTrait   = "token_prefix"
+	scimDeprovisionedBanDuration = 100 * 365 * 24 * time.Hour
+	scimTokenPrefixTrait         = "token_prefix"
 )
 
 type AdminSCIMTokenCreateParams struct {
@@ -77,7 +77,7 @@ func (a *API) adminSCIMDisable(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		prefixes, err := a.revokeSCIMTokens(tx, r, actor, provider.ID)
+		prefixes, err := a.revokeActiveSCIMTokens(tx, r, actor, provider.ID)
 		if err != nil || !changed {
 			return err
 		}
@@ -228,7 +228,7 @@ func (a *API) deprovisionSCIM(tx *storage.Connection, r *http.Request, provider 
 		return err
 	}
 	actor := getAdminUser(r.Context())
-	prefixes, err := a.revokeSCIMTokens(tx, r, actor, provider.ID)
+	prefixes, err := a.revokeActiveSCIMTokens(tx, r, actor, provider.ID)
 	if err != nil {
 		return err
 	}
@@ -237,7 +237,7 @@ func (a *API) deprovisionSCIM(tx *storage.Connection, r *http.Request, provider 
 			return err
 		}
 	}
-	banned, err := models.BanDeprovisionedSCIMUsers(tx, provider.ID, a.Now().Add(scimProviderDeletedBan))
+	banned, err := models.BanDeprovisionedSCIMUsers(tx, provider.ID, a.Now().Add(scimDeprovisionedBanDuration))
 	if err != nil || banned == 0 {
 		return err
 	}
@@ -249,7 +249,7 @@ func (a *API) deprovisionSCIM(tx *storage.Connection, r *http.Request, provider 
 	})
 }
 
-func (a *API) revokeSCIMTokens(tx *storage.Connection, r *http.Request, actor *models.User, providerID uuid.UUID) ([]string, error) {
+func (a *API) revokeActiveSCIMTokens(tx *storage.Connection, r *http.Request, actor *models.User, providerID uuid.UUID) ([]string, error) {
 	if err := models.LockSCIMTokens(tx, providerID); err != nil {
 		return nil, err
 	}

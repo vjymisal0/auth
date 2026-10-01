@@ -197,7 +197,7 @@ func (s *scimGroupRepository) members(tx *storage.Connection, providerID uuid.UU
 	for i, row := range rows {
 		ids[i] = row.ID
 	}
-	memberships, err := models.FindSCIMGroupMembers(tx, providerID, ids)
+	memberships, err := models.FindSCIMMembershipsByGroup(tx, providerID, ids)
 	if err != nil {
 		return nil, err
 	}

@@ -173,7 +173,7 @@ func (s *scimUserRepository) groupMemberships(tx *storage.Connection, providerID
 	for i, row := range rows {
 		ids[i] = row.ID
 	}
-	memberships, err := models.FindSCIMGroupsForUsers(tx, providerID, ids)
+	memberships, err := models.FindSCIMMembershipsByUser(tx, providerID, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +293,7 @@ func (s *scimUserRepository) syncAuthUser(tx *storage.Connection, change scimUse
 		return nil, err
 	}
 	if old.Active && !row.Active {
-		return nil, models.LogoutSCIMUser(tx, linked.ID)
+		return nil, models.LogoutUserForSCIM(tx, linked.ID)
 	}
 	return nil, nil
 }
@@ -316,7 +316,7 @@ func (s *scimUserRepository) renameIdentity(tx *storage.Connection, change scimU
 		Data:     data,
 	})
 	if errors.Is(err, models.SCIMIdentityNotFoundError{}) {
-		observability.GetLogEntry(change.r).Entry.WithField("user_id", userID).WithField("sso_provider_id", providerID).Warn("scim: SCIM identity not found, rename skipped")
+		observability.GetLogEntry(change.r).Entry.WithField("user_id", userID).WithField("sso_provider_id", providerID).Warn("scim: identity not found, rename skipped")
 		return nil
 	}
 	return err
@@ -375,7 +375,7 @@ func logoutSCIMLinkedUser(tx *storage.Connection, userID *uuid.UUID) error {
 	if userID == nil {
 		return nil
 	}
-	return models.LogoutSCIMUser(tx, *userID)
+	return models.LogoutUserForSCIM(tx, *userID)
 }
 
 func scimUserEmail(user *core.User) string {

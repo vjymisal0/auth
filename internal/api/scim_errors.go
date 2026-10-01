@@ -30,7 +30,7 @@ func scimError(err error) error {
 }
 
 func errSCIMNotFound() error {
-	return scimerrors.ErrNotFound("Resource not found")
+	return scimerrors.ErrNotFound("resource not found")
 }
 
 func errSCIMStale() error {

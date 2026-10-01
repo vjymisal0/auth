@@ -1021,7 +1021,7 @@ func (ts *SCIMTestSuite) TestRenameSkippedWhenIdentityMissing() {
 	require.Equal(ts.T(), string(models.SCIMUserUpdatedAction), entries[0].Payload["action"])
 	warned := false
 	for _, entry := range hook.AllEntries() {
-		warned = warned || entry.Level == logrus.WarnLevel && strings.Contains(entry.Message, "SCIM identity")
+		warned = warned || entry.Level == logrus.WarnLevel && strings.Contains(entry.Message, "identity not found")
 	}
 	require.True(ts.T(), warned)
 

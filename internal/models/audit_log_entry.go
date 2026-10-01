@@ -138,7 +138,7 @@ func (AuditLogEntry) TableName() string {
 }
 
 func NewAuditLogEntry(config conf.AuditLogConfiguration, r *http.Request, tx *storage.Connection, actor *User, action AuditAction, ipAddress string, traits map[string]interface{}) error {
-	l, _ := logAuditEvent(r, AuditEvent{Actor: actor, Action: action, Traits: traits}, ipAddress)
+	l, _ := buildAuditLogEntry(r, AuditEvent{Actor: actor, Action: action, Traits: traits}, ipAddress)
 
 	if config.DisablePostgres {
 		return nil
@@ -162,7 +162,7 @@ func NewAuditLogEntries(config conf.AuditLogConfiguration, r *http.Request, tx *
 	payloads := make([]string, len(events))
 	createdAt := make([]time.Time, len(events))
 	for i, event := range events {
-		l, at := logAuditEvent(r, event, ipAddress)
+		l, at := buildAuditLogEntry(r, event, ipAddress)
 		payload, err := json.Marshal(l.Payload)
 		if err != nil {
 			return errors.Wrap(err, "Error encoding audit log entry")
@@ -184,7 +184,7 @@ func NewAuditLogEntries(config conf.AuditLogConfiguration, r *http.Request, tx *
 	return nil
 }
 
-func logAuditEvent(r *http.Request, event AuditEvent, ipAddress string) (AuditLogEntry, time.Time) {
+func buildAuditLogEntry(r *http.Request, event AuditEvent, ipAddress string) (AuditLogEntry, time.Time) {
 	id := uuid.Must(uuid.NewV4())
 	actor, action, traits := event.Actor, event.Action, event.Traits
 

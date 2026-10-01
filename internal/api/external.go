@@ -312,12 +312,12 @@ func (a *API) createAccountFromExternalIdentity(tx *storage.Connection, r *http.
 	}
 
 	ssoProviderID, isSSO, perr := models.SSOProviderID(providerType)
-	scimOn := isSSO && config.SSO.SCIM.Enabled
-	if scimOn && perr != nil {
+	isSCIMProvider := isSSO && config.SSO.SCIM.Enabled
+	if isSCIMProvider && perr != nil {
 		return 0, nil, apierrors.NewInternalServerError("Invalid SSO provider id in provider type").WithInternalError(perr)
 	}
 
-	if scimOn {
+	if isSCIMProvider {
 		if terr := models.LockAccountLinkingEmails(tx, providerType, models.VerifiedEmails(config, userData.Emails)); terr != nil {
 			return 0, nil, terr
 		}
@@ -419,8 +419,8 @@ func (a *API) createAccountFromExternalIdentity(tx *storage.Connection, r *http.
 		return 0, nil, apierrors.NewForbiddenError(apierrors.ErrorCodeUserBanned, "User is banned")
 	}
 
-	if scimOn {
-		deprovisioned, terr := models.IsSCIMDeprovisioned(tx, ssoProviderID, user.ID)
+	if isSCIMProvider {
+		deprovisioned, terr := models.IsSCIMUserDeprovisionedByProvider(tx, ssoProviderID, user.ID)
 		if terr != nil {
 			return 0, nil, terr
 		}

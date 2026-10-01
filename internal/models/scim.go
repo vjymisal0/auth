@@ -48,7 +48,7 @@ type SCIMTarget struct {
 }
 
 type scimTable struct {
-	name       string
+	tableName  string
 	label      string
 	columns    string
 	nameColumn string
@@ -62,17 +62,17 @@ func findSCIMPage[T any](tx *storage.Connection, table scimTable, providerID uui
 	where, args := table.where(providerID, query.Filter)
 	total, err := tx.Q().Where(where, args...).Count(new(T))
 	if err != nil {
-		return nil, 0, errors.Wrapf(err, "error counting %s", table.name)
+		return nil, 0, errors.Wrapf(err, "error counting %s", table.tableName)
 	}
 	rows := []T{}
 	if query.Limit <= 0 || query.Offset >= total {
 		return rows, total, nil
 	}
 	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT %s FROM %q WHERE %s ORDER BY %s OFFSET ? LIMIT ?", table.columns, table.name, where, table.orderBy(query.Order)),
+		fmt.Sprintf("SELECT %s FROM %q WHERE %s ORDER BY %s OFFSET ? LIMIT ?", table.columns, table.tableName, where, table.orderBy(query.Order)),
 		append(args, query.Offset, query.Limit)...,
 	).All(&rows); err != nil {
-		return nil, 0, errors.Wrapf(err, "error finding %s", table.name)
+		return nil, 0, errors.Wrapf(err, "error finding %s", table.tableName)
 	}
 	return rows, total, nil
 }
@@ -80,7 +80,7 @@ func findSCIMPage[T any](tx *storage.Connection, table scimTable, providerID uui
 func createSCIMRow[T any](tx *storage.Connection, table scimTable, providerID uuid.UUID, resource []byte) (*T, error) {
 	row := new(T)
 	if err := tx.RawQuery(
-		fmt.Sprintf("INSERT INTO %q (id, sso_provider_id, resource) VALUES (?, ?, ?::jsonb) RETURNING "+table.columns, table.name),
+		fmt.Sprintf("INSERT INTO %q (id, sso_provider_id, resource) VALUES (?, ?, ?::jsonb) RETURNING "+table.columns, table.tableName),
 		uuid.Must(uuid.NewV4()), providerID, string(resource),
 	).First(row); err != nil {
 		return nil, table.wrapError(err, "creating")
@@ -95,7 +95,7 @@ func findSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarg
 	}
 	row := new(T)
 	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT %s FROM %q WHERE %s%s", table.columns, table.name, table.targetClause(), lock),
+		fmt.Sprintf("SELECT %s FROM %q WHERE %s%s", table.columns, table.tableName, table.targetClause(), lock),
 		target.ID, target.ProviderID,
 	).First(row); err != nil {
 		return nil, table.wrapError(err, "finding")
@@ -106,7 +106,7 @@ func findSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarg
 func findUnchangedSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarget, resource []byte) (*T, error) {
 	row := new(T)
 	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT %s FROM %q WHERE %s AND resource = ?::jsonb AND "+scimVersionClause+" FOR UPDATE", table.columns, table.name, table.targetClause()),
+		fmt.Sprintf("SELECT %s FROM %q WHERE %s AND resource = ?::jsonb AND "+scimVersionClause+" FOR UPDATE", table.columns, table.tableName, table.targetClause()),
 		target.ID, target.ProviderID, string(resource), target.UpdatedAt, target.UpdatedAt,
 	).First(row); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -120,7 +120,7 @@ func findUnchangedSCIMRow[T any](tx *storage.Connection, table scimTable, target
 func replaceSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarget, resource []byte) (*T, error) {
 	row := new(T)
 	if err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET resource = ?::jsonb, updated_at = now() WHERE %s AND "+scimVersionClause+" RETURNING %s", table.name, table.targetClause(), table.columns),
+		fmt.Sprintf("UPDATE %q SET resource = ?::jsonb, updated_at = now() WHERE %s AND "+scimVersionClause+" RETURNING %s", table.tableName, table.targetClause(), table.columns),
 		string(resource), target.ID, target.ProviderID, target.UpdatedAt, target.UpdatedAt,
 	).First(row); err != nil {
 		return nil, table.writeError(tx, target, err, "replacing")
@@ -157,7 +157,7 @@ func (t scimTable) exists(tx *storage.Connection, target SCIMTarget) (bool, erro
 		Exists bool `db:"exists"`
 	}{}
 	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %q WHERE %s) AS exists", t.name, t.targetClause()),
+		fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %q WHERE %s) AS exists", t.tableName, t.targetClause()),
 		target.ID, target.ProviderID,
 	).First(&result); err != nil {
 		return false, errors.Wrapf(err, "error finding %s", t.label)
