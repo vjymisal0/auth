@@ -10,7 +10,7 @@ import (
 	"github.com/supabase/auth/internal/models"
 )
 
-func (ts *SCIMUsersTestSuite) TestTenantIsolation() {
+func (ts *SCIMTestSuite) TestTenantIsolation() {
 	idA := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	idB := ts.create(ts.TokenB, userWith("bob@example.com", "b-1"))
 
@@ -36,7 +36,7 @@ func (ts *SCIMUsersTestSuite) TestTenantIsolation() {
 	require.Equal(ts.T(), true, got["active"])
 }
 
-func (ts *SCIMUsersTestSuite) TestTenantIsolationWithSameEmail() {
+func (ts *SCIMTestSuite) TestTenantIsolationWithSameEmail() {
 	body := userWith("shared@example.com", "shared-1")
 	ids := map[string]string{ts.TokenA: ts.create(ts.TokenA, body), ts.TokenB: ts.create(ts.TokenB, body)}
 	require.NotEqual(ts.T(), ids[ts.TokenA], ids[ts.TokenB])
@@ -59,7 +59,7 @@ func (ts *SCIMUsersTestSuite) TestTenantIsolationWithSameEmail() {
 	require.Equal(ts.T(), true, got["active"])
 }
 
-func (ts *SCIMUsersTestSuite) TestTombstonedUsersInvisibleToBothProviders() {
+func (ts *SCIMTestSuite) TestTombstonedUsersInvisibleToBothProviders() {
 	id := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	group := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", id))
 	w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+id, "")
@@ -78,7 +78,7 @@ func (ts *SCIMUsersTestSuite) TestTombstonedUsersInvisibleToBothProviders() {
 	require.Empty(ts.T(), memberValues(got))
 }
 
-func (ts *SCIMUsersTestSuite) TestRevokedAndExpiredTokensRefusedEverywhere() {
+func (ts *SCIMTestSuite) TestRevokedAndExpiredTokensRefusedEverywhere() {
 	user := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	group := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", user))
 
@@ -147,7 +147,7 @@ func (ts *SCIMUsersTestSuite) TestRevokedAndExpiredTokensRefusedEverywhere() {
 	require.Equal(ts.T(), http.StatusOK, w.Code)
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsTenantIsolation() {
+func (ts *SCIMTestSuite) TestGroupsTenantIsolation() {
 	aliceA := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	groupA := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", aliceA))
 

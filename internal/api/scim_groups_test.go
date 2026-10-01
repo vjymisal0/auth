@@ -22,13 +22,13 @@ func groupWith(displayName, externalID string, memberIDs ...string) string {
 	return `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],"displayName":"` + displayName + `","externalId":"` + externalID + `","members":[` + strings.Join(members, ",") + `]}`
 }
 
-func (ts *SCIMUsersTestSuite) createGroup(token, body string) string {
+func (ts *SCIMTestSuite) createGroup(token, body string) string {
 	w, created := ts.do(token, http.MethodPost, "/Groups", body)
 	require.Equal(ts.T(), http.StatusCreated, w.Code, w.Body.String())
 	return created["id"].(string)
 }
 
-func (ts *SCIMUsersTestSuite) listGroups(token, filter string) map[string]any {
+func (ts *SCIMTestSuite) listGroups(token, filter string) map[string]any {
 	w, body := ts.do(token, http.MethodGet, "/Groups?"+url.Values{"filter": {filter}}.Encode(), "")
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	return body
@@ -43,7 +43,7 @@ func memberValues(group map[string]any) []string {
 	return values
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsLifecycle() {
+func (ts *SCIMTestSuite) TestGroupsLifecycle() {
 	alice := ts.create(ts.TokenA, userWith("Alice@Example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 
@@ -109,7 +109,7 @@ func (ts *SCIMUsersTestSuite) TestGroupsLifecycle() {
 	require.Equal(ts.T(), http.StatusOK, w.Code)
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsWithoutMembers() {
+func (ts *SCIMTestSuite) TestGroupsWithoutMembers() {
 	w, created := ts.do(ts.TokenA, http.MethodPost, "/Groups", `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],"displayName":"Empty"}`)
 	require.Equal(ts.T(), http.StatusCreated, w.Code, w.Body.String())
 	require.NotContains(ts.T(), created, "members")
@@ -118,7 +118,7 @@ func (ts *SCIMUsersTestSuite) TestGroupsWithoutMembers() {
 	require.EqualValues(ts.T(), 2, ts.listGroups(ts.TokenA, `displayName eq "Empty"`)["totalResults"])
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsRejectInvalidMembers() {
+func (ts *SCIMTestSuite) TestGroupsRejectInvalidMembers() {
 	outsider := ts.create(ts.TokenB, userWith("mallory@example.com", "m-1"))
 	deleted := ts.create(ts.TokenA, userWith("gone@example.com", "g-1"))
 	w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+deleted, "")
@@ -146,7 +146,7 @@ func (ts *SCIMUsersTestSuite) TestGroupsRejectInvalidMembers() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsMemberTypeIsCaseInsensitive() {
+func (ts *SCIMTestSuite) TestGroupsMemberTypeIsCaseInsensitive() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 
 	for _, kind := range []string{"user", "USER", "User"} {
@@ -157,7 +157,7 @@ func (ts *SCIMUsersTestSuite) TestGroupsMemberTypeIsCaseInsensitive() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestPatchReplaceMembers() {
+func (ts *SCIMTestSuite) TestPatchReplaceMembers() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 	carol := ts.create(ts.TokenA, userWith("carol@example.com", "c-1"))
@@ -181,7 +181,7 @@ func (ts *SCIMUsersTestSuite) TestPatchReplaceMembers() {
 	}, events)
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupMemberEventsCarryUserID() {
+func (ts *SCIMTestSuite) TestGroupMemberEventsCarryUserID() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 	userIDs := map[string]string{}
@@ -223,7 +223,7 @@ func (ts *SCIMUsersTestSuite) TestGroupMemberEventsCarryUserID() {
 	}, events)
 }
 
-func (ts *SCIMUsersTestSuite) TestExcludedMembersKeepsWrites() {
+func (ts *SCIMTestSuite) TestExcludedMembersKeepsWrites() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 	carol := ts.create(ts.TokenA, userWith("carol@example.com", "c-1"))
@@ -253,7 +253,7 @@ func (ts *SCIMUsersTestSuite) TestExcludedMembersKeepsWrites() {
 	require.Equal(ts.T(), "Platform", got["displayName"])
 }
 
-func (ts *SCIMUsersTestSuite) TestPatchRemoveAbsentMember() {
+func (ts *SCIMTestSuite) TestPatchRemoveAbsentMember() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "", alice))
@@ -265,7 +265,7 @@ func (ts *SCIMUsersTestSuite) TestPatchRemoveAbsentMember() {
 	require.Len(ts.T(), ts.auditActions(models.SCIMGroupMemberRemovedAction), before)
 }
 
-func (ts *SCIMUsersTestSuite) TestPatchRejectsRemoveWithValue() {
+func (ts *SCIMTestSuite) TestPatchRejectsRemoveWithValue() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "", alice, bob))
@@ -293,7 +293,7 @@ func (ts *SCIMUsersTestSuite) TestPatchRejectsRemoveWithValue() {
 	require.Equal(ts.T(), []string{alice}, memberValues(got))
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsExternalIDUniqueWithinProvider() {
+func (ts *SCIMTestSuite) TestGroupsExternalIDUniqueWithinProvider() {
 	ts.createGroup(ts.TokenA, groupWith("A", "g-1"))
 
 	w, body := ts.do(ts.TokenA, http.MethodPost, "/Groups", groupWith("B", "g-1"))
@@ -303,7 +303,7 @@ func (ts *SCIMUsersTestSuite) TestGroupsExternalIDUniqueWithinProvider() {
 	ts.createGroup(ts.TokenB, groupWith("A", "g-1"))
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsETagAndIfMatch() {
+func (ts *SCIMTestSuite) TestGroupsETagAndIfMatch() {
 	w, created := ts.do(ts.TokenA, http.MethodPost, "/Groups", groupWith("Engineering", "g-1"))
 	require.Equal(ts.T(), http.StatusCreated, w.Code, w.Body.String())
 	id := created["id"].(string)
@@ -328,7 +328,7 @@ func (ts *SCIMUsersTestSuite) TestGroupsETagAndIfMatch() {
 	require.Equal(ts.T(), http.StatusNoContent, w.Code, w.Body.String())
 }
 
-func (ts *SCIMUsersTestSuite) TestIdenticalPutChecksIfMatch() {
+func (ts *SCIMTestSuite) TestIdenticalPutChecksIfMatch() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	for path, body := range map[string]string{
 		"/Users/" + alice: userWith("alice@example.com", "a-2"),
@@ -353,7 +353,7 @@ func (ts *SCIMUsersTestSuite) TestIdenticalPutChecksIfMatch() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsRemoveDeletedMembers() {
+func (ts *SCIMTestSuite) TestGroupsRemoveDeletedMembers() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 	eng := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", alice, bob))
@@ -386,7 +386,7 @@ func (ts *SCIMUsersTestSuite) TestGroupsRemoveDeletedMembers() {
 	require.ElementsMatch(ts.T(), []string{eng, ops}, removed)
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsVersionChangesWhenMemberDeleted() {
+func (ts *SCIMTestSuite) TestGroupsVersionChangesWhenMemberDeleted() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", alice))
 	w, _ := ts.do(ts.TokenA, http.MethodGet, "/Groups/"+id, "")
@@ -401,7 +401,7 @@ func (ts *SCIMUsersTestSuite) TestGroupsVersionChangesWhenMemberDeleted() {
 	require.Equal(ts.T(), http.StatusPreconditionFailed, w.Code, w.Body.String())
 }
 
-func (ts *SCIMUsersTestSuite) TestUserDeleteWaitsForGroupWrite() {
+func (ts *SCIMTestSuite) TestUserDeleteWaitsForGroupWrite() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", alice, bob))
@@ -427,7 +427,7 @@ func (ts *SCIMUsersTestSuite) TestUserDeleteWaitsForGroupWrite() {
 	require.Equal(ts.T(), []string{bob}, memberValues(got))
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsKeepDeactivatedMembers() {
+func (ts *SCIMTestSuite) TestGroupsKeepDeactivatedMembers() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", alice))
@@ -454,7 +454,7 @@ func (ts *SCIMUsersTestSuite) TestGroupsKeepDeactivatedMembers() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsSortAndPaginate() {
+func (ts *SCIMTestSuite) TestGroupsSortAndPaginate() {
 	ts.createGroup(ts.TokenA, groupWith("beta", "g-2"))
 	ts.createGroup(ts.TokenA, groupWith("Alpha", "g-1"))
 	ts.createGroup(ts.TokenA, groupWith("gamma", "g-3"))
@@ -473,7 +473,7 @@ func (ts *SCIMUsersTestSuite) TestGroupsSortAndPaginate() {
 	require.Equal(ts.T(), "invalidValue", body["scimType"])
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsUnsupportedFilters() {
+func (ts *SCIMTestSuite) TestGroupsUnsupportedFilters() {
 	for _, filter := range []string{
 		`displayName co "eng"`,
 		`members.value eq "00000000-0000-0000-0000-000000000000"`,
@@ -487,14 +487,14 @@ func (ts *SCIMUsersTestSuite) TestGroupsUnsupportedFilters() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsUnknownID() {
+func (ts *SCIMTestSuite) TestGroupsUnknownID() {
 	for _, id := range []string{"not-a-uuid", "00000000-0000-0000-0000-000000000000"} {
 		w, _ := ts.do(ts.TokenA, http.MethodGet, "/Groups/"+id, "")
 		require.Equal(ts.T(), http.StatusNotFound, w.Code, id)
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsAuditLog() {
+func (ts *SCIMTestSuite) TestGroupsAuditLog() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 	before := len(ts.scimAuditEntries())
@@ -551,7 +551,7 @@ func (ts *SCIMUsersTestSuite) TestGroupsAuditLog() {
 	}, events)
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsPushReplay() {
+func (ts *SCIMTestSuite) TestGroupsPushReplay() {
 	bjensen := ts.create(ts.TokenA, userWith("bjensen@example.com", "bjensen"))
 	jsmith := ts.create(ts.TokenA, userWith("jsmith@example.com", "701984"))
 
@@ -621,7 +621,7 @@ func (ts *SCIMUsersTestSuite) TestGroupsPushReplay() {
 	}, events)
 }
 
-func (ts *SCIMUsersTestSuite) TestGroupsPatchReplay() {
+func (ts *SCIMTestSuite) TestGroupsPatchReplay() {
 	bjensen := ts.create(ts.TokenA, userWith("bjensen@example.com", "bjensen"))
 	jsmith := ts.create(ts.TokenA, userWith("jsmith@example.com", "701984"))
 	babs := ts.create(ts.TokenA, userWith("babs@jensen.org", "babs"))
@@ -644,7 +644,7 @@ func (ts *SCIMUsersTestSuite) TestGroupsPatchReplay() {
 	require.Equal(ts.T(), len(expected), played)
 }
 
-func (ts *SCIMUsersTestSuite) requireGroup(step, group, displayName string, members []string) {
+func (ts *SCIMTestSuite) requireGroup(step, group, displayName string, members []string) {
 	w, got := ts.do(ts.TokenA, http.MethodGet, "/Groups/"+group, "")
 	require.Equal(ts.T(), http.StatusOK, w.Code, step)
 	require.Equal(ts.T(), displayName, got["displayName"], step)

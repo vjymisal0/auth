@@ -14,7 +14,7 @@ import (
 	"github.com/supabase/auth/internal/models"
 )
 
-func (ts *SCIMUsersTestSuite) okta(method, path, body string, headers ...string) (int, map[string]any) {
+func (ts *SCIMTestSuite) okta(method, path, body string, headers ...string) (int, map[string]any) {
 	contentType := "application/scim+json; charset=utf-8"
 	if method == http.MethodPost {
 		contentType = "application/json"
@@ -37,7 +37,7 @@ type replayRequest struct {
 	Body   json.RawMessage `json:"body"`
 }
 
-func (ts *SCIMUsersTestSuite) replay(file, created string, ids []string, onRequest func(step string, request replayRequest, got map[string]any, id string), afterStep func(step, id string)) int {
+func (ts *SCIMTestSuite) replay(file, created string, ids []string, onRequest func(step string, request replayRequest, got map[string]any, id string), afterStep func(step, id string)) int {
 	raw, err := fs.ReadFile(os.DirFS("testdata/scim"), file)
 	require.NoError(ts.T(), err)
 	var steps []struct {
@@ -69,7 +69,7 @@ func oktaFilter(userName string) string {
 	return "/Users?" + url.Values{"filter": {`userName eq "` + userName + `"`}}.Encode()
 }
 
-func (ts *SCIMUsersTestSuite) TestOktaSpec() {
+func (ts *SCIMTestSuite) TestOktaSpec() {
 	const (
 		userName   = "okta.spec.user@example.com"
 		givenName  = "Okta"
@@ -158,7 +158,7 @@ func (ts *SCIMUsersTestSuite) TestOktaSpec() {
 	requireError(got, "404")
 }
 
-func (ts *SCIMUsersTestSuite) TestOktaUserLifecycleReplay() {
+func (ts *SCIMTestSuite) TestOktaUserLifecycleReplay() {
 	const password = "okta-generated-password"
 
 	type state struct {

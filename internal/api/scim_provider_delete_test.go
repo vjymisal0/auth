@@ -16,7 +16,7 @@ func scimUser(name string) string {
 	return userWith(name+"@example.com", name)
 }
 
-func (ts *SCIMUsersTestSuite) deleteProvider(p *models.SSOProvider) {
+func (ts *SCIMTestSuite) deleteProvider(p *models.SSOProvider) {
 	token := adminJWT(ts.T(), ts.API.config.JWT.Secret)
 	r := httptest.NewRequest(http.MethodDelete, "/admin/sso/providers/"+p.ID.String(), nil)
 	r.Header.Set("Authorization", "Bearer "+token)
@@ -25,23 +25,23 @@ func (ts *SCIMUsersTestSuite) deleteProvider(p *models.SSOProvider) {
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 }
 
-func (ts *SCIMUsersTestSuite) reloadUser(id uuid.UUID) *models.User {
+func (ts *SCIMTestSuite) reloadUser(id uuid.UUID) *models.User {
 	user, err := models.FindUserByID(ts.API.db, id)
 	require.NoError(ts.T(), err)
 	return user
 }
 
-func (ts *SCIMUsersTestSuite) countRows(model any, where string, args ...any) int {
+func (ts *SCIMTestSuite) countRows(model any, where string, args ...any) int {
 	count, err := ts.API.db.Q().Where(where, args...).Count(model)
 	require.NoError(ts.T(), err)
 	return count
 }
 
-func (ts *SCIMUsersTestSuite) auditActions(action models.AuditAction) []models.AuditLogEntry {
+func (ts *SCIMTestSuite) auditActions(action models.AuditAction) []models.AuditLogEntry {
 	return queryAuditEntries(ts.T(), ts.API.db, "payload->>'action' = ?", string(action))
 }
 
-func (ts *SCIMUsersTestSuite) TestProviderDeleteBansDeprovisionedUsers() {
+func (ts *SCIMTestSuite) TestProviderDeleteBansDeprovisionedUsers() {
 	active := ts.linkedUser(ts.create(ts.TokenA, scimUser("active")))
 
 	deactivatedID := ts.create(ts.TokenA, scimUser("deactivated"))
@@ -83,7 +83,7 @@ func (ts *SCIMUsersTestSuite) TestProviderDeleteBansDeprovisionedUsers() {
 	require.Equal(ts.T(), http.StatusOK, w.Code)
 }
 
-func (ts *SCIMUsersTestSuite) TestProviderDeleteKeepsLongerBan() {
+func (ts *SCIMTestSuite) TestProviderDeleteKeepsLongerBan() {
 	id := ts.create(ts.TokenA, scimUser("banned"))
 	user := ts.linkedUser(id)
 	ts.setActive(id, false)
@@ -96,7 +96,7 @@ func (ts *SCIMUsersTestSuite) TestProviderDeleteKeepsLongerBan() {
 	require.Empty(ts.T(), ts.auditActions(models.SCIMUsersBannedAction))
 }
 
-func (ts *SCIMUsersTestSuite) TestProviderDeleteClosesOAuthBypass() {
+func (ts *SCIMTestSuite) TestProviderDeleteClosesOAuthBypass() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 	identity, err := models.NewIdentity(user, "google", map[string]any{"sub": "google-sub", "email": "alice@example.com"})
@@ -122,7 +122,7 @@ func (ts *SCIMUsersTestSuite) TestProviderDeleteClosesOAuthBypass() {
 	require.Zero(ts.T(), ts.sessions(user))
 }
 
-func (ts *SCIMUsersTestSuite) TestProviderDeleteAudit() {
+func (ts *SCIMTestSuite) TestProviderDeleteAudit() {
 	ts.setActive(ts.create(ts.TokenA, scimUser("audited")), false)
 	tokens, err := models.FindActiveSCIMTokensBySSOProvider(ts.API.db, ts.A.ID)
 	require.NoError(ts.T(), err)
@@ -149,7 +149,7 @@ func (ts *SCIMUsersTestSuite) TestProviderDeleteAudit() {
 	require.Equal(ts.T(), ts.A.ID.String(), traits["sso_provider_id"])
 }
 
-func (ts *SCIMUsersTestSuite) TestProviderDeleteWritesNoGroupEvents() {
+func (ts *SCIMTestSuite) TestProviderDeleteWritesNoGroupEvents() {
 	alice := ts.create(ts.TokenA, scimUser("alice"))
 	ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", alice))
 	before := ts.countRows(&models.AuditLogEntry{}, "payload->>'action' LIKE 'scim_group_%'")
@@ -160,7 +160,7 @@ func (ts *SCIMUsersTestSuite) TestProviderDeleteWritesNoGroupEvents() {
 	require.Zero(ts.T(), ts.countRows(&models.SCIMGroup{}, "sso_provider_id = ?", ts.A.ID))
 }
 
-func (ts *SCIMUsersTestSuite) TestProviderDeleteAuditWithExpiredTokens() {
+func (ts *SCIMTestSuite) TestProviderDeleteAuditWithExpiredTokens() {
 	ts.setActive(ts.create(ts.TokenA, scimUser("expired")), false)
 	require.NoError(ts.T(), ts.API.db.RawQuery(
 		"UPDATE "+(&models.SCIMToken{}).TableName()+" SET created_at = now() - interval '2 hours', expires_at = now() - interval '1 hour' WHERE sso_provider_id = ?", ts.A.ID,
@@ -175,7 +175,7 @@ func (ts *SCIMUsersTestSuite) TestProviderDeleteAuditWithExpiredTokens() {
 	require.Len(ts.T(), ts.auditActions(models.SCIMUsersBannedAction), 1)
 }
 
-func (ts *SCIMUsersTestSuite) TestProviderDeleteWithoutSCIMEnabled() {
+func (ts *SCIMTestSuite) TestProviderDeleteWithoutSCIMEnabled() {
 	provider := createSSOProvider(ts.T(), ts.API.db)
 	token, _, err := models.CreateSCIMToken(ts.API.db, provider, nil)
 	require.NoError(ts.T(), err)
@@ -188,7 +188,7 @@ func (ts *SCIMUsersTestSuite) TestProviderDeleteWithoutSCIMEnabled() {
 	require.Equal(ts.T(), token.Prefix, revoked[0].Payload["traits"].(map[string]any)["token_prefix"])
 }
 
-func (ts *SCIMUsersTestSuite) TestProviderDeleteAfterSCIMDisabled() {
+func (ts *SCIMTestSuite) TestProviderDeleteAfterSCIMDisabled() {
 	id := ts.create(ts.TokenA, scimUser("disabled"))
 	user := ts.linkedUser(id)
 	ts.setActive(id, false)
@@ -202,7 +202,7 @@ func (ts *SCIMUsersTestSuite) TestProviderDeleteAfterSCIMDisabled() {
 	require.True(ts.T(), ts.reloadUser(user.ID).IsBanned())
 }
 
-func (ts *SCIMUsersTestSuite) TestProviderDeleteStillBansWhileSCIMFlagOff() {
+func (ts *SCIMTestSuite) TestProviderDeleteStillBansWhileSCIMFlagOff() {
 	id := ts.create(ts.TokenA, scimUser("flagoff"))
 	user := ts.linkedUser(id)
 	ts.setActive(id, false)

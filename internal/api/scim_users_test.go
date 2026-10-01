@@ -38,13 +38,13 @@ const oktaUser = `{
 	"active": true
 }`
 
-func (ts *SCIMUsersTestSuite) create(token, body string) string {
+func (ts *SCIMTestSuite) create(token, body string) string {
 	w, created := ts.do(token, http.MethodPost, "/Users", body)
 	require.Equal(ts.T(), http.StatusCreated, w.Code, w.Body.String())
 	return created["id"].(string)
 }
 
-func (ts *SCIMUsersTestSuite) list(token, filter string) map[string]any {
+func (ts *SCIMTestSuite) list(token, filter string) map[string]any {
 	w, body := ts.do(token, http.MethodGet, "/Users?"+url.Values{"filter": {filter}, "startIndex": {"1"}, "count": {"100"}}.Encode(), "")
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	return body
@@ -54,7 +54,7 @@ func userWith(userName, externalID string) string {
 	return `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"` + userName + `","externalId":"` + externalID + `","emails":[{"primary":true,"value":"` + userName + `"}]}`
 }
 
-func (ts *SCIMUsersTestSuite) repository() (context.Context, server.Repository[*core.User]) {
+func (ts *SCIMTestSuite) repository() (context.Context, server.Repository[*core.User]) {
 	ctx, err := newSCIMTokenValidator(ts.API.db)(context.Background(), ts.TokenA)
 	require.NoError(ts.T(), err)
 	ctx = scimRequestKey.WithValue(ctx, httptest.NewRequest(http.MethodPost, "/scim/v2/Users", nil))
@@ -65,7 +65,7 @@ func emails(value string) []core.Email {
 	return []core.Email{{Value: value, Primary: new(true)}}
 }
 
-func (ts *SCIMUsersTestSuite) TestOktaLifecycle() {
+func (ts *SCIMTestSuite) TestOktaLifecycle() {
 	require.EqualValues(ts.T(), 0, ts.list(ts.TokenA, `userName eq "alice@example.com"`)["totalResults"])
 
 	w, created := ts.do(ts.TokenA, http.MethodPost, "/Users", oktaUser)
@@ -134,7 +134,7 @@ func (ts *SCIMUsersTestSuite) TestOktaLifecycle() {
 	require.NotNil(ts.T(), stored.DeletedAt)
 }
 
-func (ts *SCIMUsersTestSuite) TestOktaContentTypesAndReactivate() {
+func (ts *SCIMTestSuite) TestOktaContentTypesAndReactivate() {
 	for i, contentType := range []string{"application/scim+json; charset=utf-8", "application/json", "application/json; charset=utf-8"} {
 		name := string(rune('a'+i)) + "@example.com"
 		w, created := ts.doAs(contentType, ts.TokenA, http.MethodPost, "/Users", userWith(name, name))
@@ -152,7 +152,7 @@ func (ts *SCIMUsersTestSuite) TestOktaContentTypesAndReactivate() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestUnsupportedEndpointsReturnNotImplemented() {
+func (ts *SCIMTestSuite) TestUnsupportedEndpointsReturnNotImplemented() {
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodGet, "/Me"},
 		{http.MethodPost, "/Bulk"},
@@ -167,7 +167,7 @@ func (ts *SCIMUsersTestSuite) TestUnsupportedEndpointsReturnNotImplemented() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestUniquenessWithinProvider() {
+func (ts *SCIMTestSuite) TestUniquenessWithinProvider() {
 	ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 
 	for _, body := range []string{userWith("ALICE@example.com", "a-2"), userWith("bob@example.com", "a-1")} {
@@ -179,7 +179,7 @@ func (ts *SCIMUsersTestSuite) TestUniquenessWithinProvider() {
 	ts.create(ts.TokenB, userWith("alice@example.com", "a-1"))
 }
 
-func (ts *SCIMUsersTestSuite) TestUniqueIndexIsTheBackstop() {
+func (ts *SCIMTestSuite) TestUniqueIndexIsTheBackstop() {
 	ctx, users := ts.repository()
 
 	_, err := users.Create(ctx, &core.User{UserName: "alice@example.com", Emails: emails("alice@example.com")})
@@ -191,7 +191,7 @@ func (ts *SCIMUsersTestSuite) TestUniqueIndexIsTheBackstop() {
 	require.Equal(ts.T(), http.StatusConflict, scimErr.StatusCode())
 }
 
-func (ts *SCIMUsersTestSuite) TestReplaceRejectsStaleVersion() {
+func (ts *SCIMTestSuite) TestReplaceRejectsStaleVersion() {
 	ctx, users := ts.repository()
 
 	created, err := users.Create(ctx, &core.User{UserName: "alice@example.com", Emails: emails("alice@example.com")})
@@ -230,7 +230,7 @@ func (ts *SCIMUsersTestSuite) TestReplaceRejectsStaleVersion() {
 	require.Contains(ts.T(), string(stored.Resource), "winner")
 }
 
-func (ts *SCIMUsersTestSuite) TestDeleteRejectsStaleVersion() {
+func (ts *SCIMTestSuite) TestDeleteRejectsStaleVersion() {
 	ctx, users := ts.repository()
 
 	created, err := users.Create(ctx, &core.User{UserName: "alice@example.com", Emails: emails("alice@example.com")})
@@ -264,7 +264,7 @@ func (ts *SCIMUsersTestSuite) TestDeleteRejectsStaleVersion() {
 	require.NotNil(ts.T(), stored.DeletedAt)
 }
 
-func (ts *SCIMUsersTestSuite) whileLocked(lock, finish func(tx *storage.Connection) error, method, path, body string) (int, error) {
+func (ts *SCIMTestSuite) whileLocked(lock, finish func(tx *storage.Connection) error, method, path, body string) (int, error) {
 	locked, release := make(chan struct{}), make(chan struct{})
 	held := make(chan error, 1)
 	go func() {
@@ -293,11 +293,11 @@ func (ts *SCIMUsersTestSuite) whileLocked(lock, finish func(tx *storage.Connecti
 	return <-code, <-held
 }
 
-func (ts *SCIMUsersTestSuite) scimAuditEntries() []models.AuditLogEntry {
+func (ts *SCIMTestSuite) scimAuditEntries() []models.AuditLogEntry {
 	return queryAuditEntries(ts.T(), ts.API.db, "payload->>'log_type' = ?", "scim")
 }
 
-func (ts *SCIMUsersTestSuite) TestAuditLog() {
+func (ts *SCIMTestSuite) TestAuditLog() {
 	id := ts.create(ts.TokenA, oktaUser)
 
 	w, _ := ts.do(ts.TokenA, http.MethodPost, "/Users", oktaUser)
@@ -340,7 +340,7 @@ func (ts *SCIMUsersTestSuite) TestAuditLog() {
 	}, actions)
 }
 
-func (ts *SCIMUsersTestSuite) TestRolesRoundTrip() {
+func (ts *SCIMTestSuite) TestRolesRoundTrip() {
 	body := `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"alice@example.com","emails":[{"primary":true,"value":"alice@example.com"}],"roles":[{"value":"admin","primary":true},{"value":"billing"}]}`
 	id := ts.create(ts.TokenA, body)
 
@@ -353,7 +353,7 @@ func (ts *SCIMUsersTestSuite) TestRolesRoundTrip() {
 	require.Equal(ts.T(), []string{"admin", "billing"}, roles)
 }
 
-func (ts *SCIMUsersTestSuite) TestConcurrentCreateWithinProvider() {
+func (ts *SCIMTestSuite) TestConcurrentCreateWithinProvider() {
 	const attempts = 8
 	codes := make(chan int, attempts)
 	start := make(chan struct{})
@@ -381,7 +381,7 @@ func (ts *SCIMUsersTestSuite) TestConcurrentCreateWithinProvider() {
 	require.EqualValues(ts.T(), 1, ts.list(ts.TokenA, `userName eq "race@example.com"`)["totalResults"])
 }
 
-func (ts *SCIMUsersTestSuite) TestSort() {
+func (ts *SCIMTestSuite) TestSort() {
 	ids := map[string]string{}
 	for _, name := range []string{"carol@example.com", "Alice@example.com", "bob@example.com"} {
 		ids[name] = ts.create(ts.TokenA, userWith(name, name))
@@ -426,7 +426,7 @@ func (ts *SCIMUsersTestSuite) TestSort() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestAttributeProjection() {
+func (ts *SCIMTestSuite) TestAttributeProjection() {
 	id := ts.create(ts.TokenA, oktaUser)
 
 	for _, path := range []string{"/Users/" + id, "/Users"} {
@@ -460,7 +460,7 @@ func (ts *SCIMUsersTestSuite) TestAttributeProjection() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestWriteResponseProjection() {
+func (ts *SCIMTestSuite) TestWriteResponseProjection() {
 	w, created := ts.do(ts.TokenA, http.MethodPost, "/Users?attributes=userName", userWith("alice@example.com", "a-1"))
 	require.Equal(ts.T(), http.StatusCreated, w.Code, w.Body.String())
 	id := created["id"].(string)
@@ -486,7 +486,7 @@ func (ts *SCIMUsersTestSuite) TestWriteResponseProjection() {
 	require.Equal(ts.T(), []string{id}, memberValues(got))
 }
 
-func (ts *SCIMUsersTestSuite) TestETagAndIfMatch() {
+func (ts *SCIMTestSuite) TestETagAndIfMatch() {
 	w, created := ts.do(ts.TokenA, http.MethodPost, "/Users", oktaUser)
 	require.Equal(ts.T(), http.StatusCreated, w.Code, w.Body.String())
 	id := created["id"].(string)
@@ -522,7 +522,7 @@ func (ts *SCIMUsersTestSuite) TestETagAndIfMatch() {
 	require.Equal(ts.T(), http.StatusNoContent, w.Code, w.Body.String())
 }
 
-func (ts *SCIMUsersTestSuite) TestPatchAttributesOutsideTheMinimalSchema() {
+func (ts *SCIMTestSuite) TestPatchAttributesOutsideTheMinimalSchema() {
 	id := ts.create(ts.TokenA, oktaUser)
 
 	patch := `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[
@@ -542,7 +542,7 @@ func (ts *SCIMUsersTestSuite) TestPatchAttributesOutsideTheMinimalSchema() {
 	require.ElementsMatch(ts.T(), []any{string(core.SchemaUser), string(core.SchemaEnterpriseUser)}, read["schemas"])
 }
 
-func (ts *SCIMUsersTestSuite) TestActiveDefaultsToTrue() {
+func (ts *SCIMTestSuite) TestActiveDefaultsToTrue() {
 	w, created := ts.do(ts.TokenA, http.MethodPost, "/Users", userWith("alice@example.com", "a-1"))
 	require.Equal(ts.T(), http.StatusCreated, w.Code)
 	require.Equal(ts.T(), true, created["active"])
@@ -552,7 +552,7 @@ func (ts *SCIMUsersTestSuite) TestActiveDefaultsToTrue() {
 	require.Equal(ts.T(), true, replaced["active"])
 }
 
-func (ts *SCIMUsersTestSuite) TestPagination() {
+func (ts *SCIMTestSuite) TestPagination() {
 	for _, name := range []string{"a", "b", "c"} {
 		ts.create(ts.TokenA, userWith(name+"@example.com", name))
 	}
@@ -575,7 +575,7 @@ func (ts *SCIMUsersTestSuite) TestPagination() {
 	require.Empty(ts.T(), page["Resources"])
 }
 
-func (ts *SCIMUsersTestSuite) TestPageSizeCap() {
+func (ts *SCIMTestSuite) TestPageSizeCap() {
 	for i := range 101 {
 		_, err := models.CreateSCIMUser(ts.API.db, ts.A.ID, []byte(`{"userName":"user`+strconv.Itoa(i)+`@example.com"}`))
 		require.NoError(ts.T(), err)
@@ -592,7 +592,7 @@ func (ts *SCIMUsersTestSuite) TestPageSizeCap() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestSortTieBreaksOnID() {
+func (ts *SCIMTestSuite) TestSortTieBreaksOnID() {
 	ids := []string{
 		ts.create(ts.TokenA, userWith("alice@example.com", "a-1")),
 		ts.create(ts.TokenA, userWith("bob@example.com", "b-1")),
@@ -619,7 +619,7 @@ func (ts *SCIMUsersTestSuite) TestSortTieBreaksOnID() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestUnsupportedFilters() {
+func (ts *SCIMTestSuite) TestUnsupportedFilters() {
 	for _, filter := range []string{
 		`userName co "alice"`,
 		`userName ne "alice"`,
@@ -636,14 +636,14 @@ func (ts *SCIMUsersTestSuite) TestUnsupportedFilters() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestUnknownID() {
+func (ts *SCIMTestSuite) TestUnknownID() {
 	for _, id := range []string{"not-a-uuid", "00000000-0000-0000-0000-000000000000"} {
 		w, _ := ts.do(ts.TokenA, http.MethodGet, "/Users/"+id, "")
 		require.Equal(ts.T(), http.StatusNotFound, w.Code, id)
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestRequiresSSOProviderOnContext() {
+func (ts *SCIMTestSuite) TestRequiresSSOProviderOnContext() {
 	users := &scimUserRepository{api: ts.API}
 
 	_, _, err := users.List(context.Background(), &protocol.SearchRequest{Count: 10})
@@ -685,7 +685,7 @@ func TestSCIMUserFields(t *testing.T) {
 	})
 }
 
-func (ts *SCIMUsersTestSuite) TestUsersGroupsAttribute() {
+func (ts *SCIMTestSuite) TestUsersGroupsAttribute() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 	ops := ts.createGroup(ts.TokenA, groupWith("Ops", "g-2", alice))

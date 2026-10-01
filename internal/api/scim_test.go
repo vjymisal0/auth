@@ -463,7 +463,7 @@ func TestSCIMServer(t *testing.T) {
 	})
 }
 
-type SCIMUsersTestSuite struct {
+type SCIMTestSuite struct {
 	suite.Suite
 	API    *API
 	TokenA string
@@ -472,30 +472,30 @@ type SCIMUsersTestSuite struct {
 	B      *models.SSOProvider
 }
 
-func TestSCIMUsers(t *testing.T) {
+func TestSCIMSuite(t *testing.T) {
 	api, _ := setupSCIMAPI(t, func(config *conf.GlobalConfiguration) {
 		config.RateLimitScim = 1_000_000
 	})
 	defer api.db.Close()
 
-	suite.Run(t, &SCIMUsersTestSuite{API: api})
+	suite.Run(t, &SCIMTestSuite{API: api})
 }
 
-func (ts *SCIMUsersTestSuite) SetupTest() {
+func (ts *SCIMTestSuite) SetupTest() {
 	require.NoError(ts.T(), models.TruncateAll(ts.API.db))
 	ts.A, ts.TokenA = ts.provider()
 	ts.B, ts.TokenB = ts.provider()
 }
 
-func (ts *SCIMUsersTestSuite) provider() (*models.SSOProvider, string) {
+func (ts *SCIMTestSuite) provider() (*models.SSOProvider, string) {
 	return createSSOProviderWithSCIMToken(ts.T(), ts.API.db)
 }
 
-func (ts *SCIMUsersTestSuite) do(token, method, path, body string) (*httptest.ResponseRecorder, map[string]any) {
+func (ts *SCIMTestSuite) do(token, method, path, body string) (*httptest.ResponseRecorder, map[string]any) {
 	return ts.doAs(protocol.MediaType, token, method, path, body)
 }
 
-func (ts *SCIMUsersTestSuite) doAs(contentType, token, method, path, body string, headers ...string) (*httptest.ResponseRecorder, map[string]any) {
+func (ts *SCIMTestSuite) doAs(contentType, token, method, path, body string, headers ...string) (*httptest.ResponseRecorder, map[string]any) {
 	w := ts.serve(contentType, token, method, path, body, headers...)
 
 	var decoded map[string]any
@@ -505,7 +505,7 @@ func (ts *SCIMUsersTestSuite) doAs(contentType, token, method, path, body string
 	return w, decoded
 }
 
-func (ts *SCIMUsersTestSuite) serve(contentType, token, method, path, body string, headers ...string) *httptest.ResponseRecorder {
+func (ts *SCIMTestSuite) serve(contentType, token, method, path, body string, headers ...string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, "/scim/v2"+path, strings.NewReader(body))
 	r.Header.Set("Authorization", "Bearer "+token)
 	r.Header.Set("Content-Type", contentType)

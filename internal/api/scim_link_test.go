@@ -19,7 +19,7 @@ import (
 	"github.com/supabase/auth/internal/storage"
 )
 
-func (ts *SCIMUsersTestSuite) ssoUser(provider *models.SSOProvider, sub, email string) *models.User {
+func (ts *SCIMTestSuite) ssoUser(provider *models.SSOProvider, sub, email string) *models.User {
 	user, err := models.NewUser("", email, "", ts.API.config.JWT.Aud, nil)
 	require.NoError(ts.T(), err)
 	user.IsSSOUser = true
@@ -30,7 +30,7 @@ func (ts *SCIMUsersTestSuite) ssoUser(provider *models.SSOProvider, sub, email s
 	return user
 }
 
-func (ts *SCIMUsersTestSuite) linkedUser(id string) *models.User {
+func (ts *SCIMTestSuite) linkedUser(id string) *models.User {
 	var row models.SCIMUser
 	require.NoError(ts.T(), ts.API.db.Q().Where("id = ?", id).First(&row))
 	require.NotNil(ts.T(), row.UserID)
@@ -39,13 +39,13 @@ func (ts *SCIMUsersTestSuite) linkedUser(id string) *models.User {
 	return user
 }
 
-func (ts *SCIMUsersTestSuite) identities(user *models.User) []*models.Identity {
+func (ts *SCIMTestSuite) identities(user *models.User) []*models.Identity {
 	identities, err := models.FindIdentitiesByUserID(ts.API.db, user.ID)
 	require.NoError(ts.T(), err)
 	return identities
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateProvisionsSSOUser() {
+func (ts *SCIMTestSuite) TestCreateProvisionsSSOUser() {
 	user := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
 
 	require.True(ts.T(), user.IsSSOUser)
@@ -61,7 +61,7 @@ func (ts *SCIMUsersTestSuite) TestCreateProvisionsSSOUser() {
 	require.Equal(ts.T(), "Alice@Example.com", identities[0].ProviderID)
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateDoesNotLinkOutsideProvider() {
+func (ts *SCIMTestSuite) TestCreateDoesNotLinkOutsideProvider() {
 	password, err := models.NewUser("", "alice@example.com", "", ts.API.config.JWT.Aud, nil)
 	require.NoError(ts.T(), err)
 	require.NoError(ts.T(), ts.API.db.Create(password))
@@ -75,7 +75,7 @@ func (ts *SCIMUsersTestSuite) TestCreateDoesNotLinkOutsideProvider() {
 	require.Len(ts.T(), ts.identities(other), 1)
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateReusesSAMLIdentity() {
+func (ts *SCIMTestSuite) TestCreateReusesSAMLIdentity() {
 	existing := ts.ssoUser(ts.A, "Alice@Example.com", "alice@example.com")
 
 	user := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
@@ -84,7 +84,7 @@ func (ts *SCIMUsersTestSuite) TestCreateReusesSAMLIdentity() {
 	require.Len(ts.T(), ts.identities(user), 1)
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateLinksByEmailWithinProvider() {
+func (ts *SCIMTestSuite) TestCreateLinksByEmailWithinProvider() {
 	existing := ts.ssoUser(ts.A, "saml-name-id", "alice@example.com")
 
 	user := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
@@ -93,7 +93,7 @@ func (ts *SCIMUsersTestSuite) TestCreateLinksByEmailWithinProvider() {
 	require.Len(ts.T(), ts.identities(user), 2)
 }
 
-func (ts *SCIMUsersTestSuite) passkeyRegistrationOptions(user *models.User) int {
+func (ts *SCIMTestSuite) passkeyRegistrationOptions(user *models.User) int {
 	passkey, webauthn := ts.API.config.Passkey, ts.API.config.WebAuthn
 	defer func() { ts.API.config.Passkey, ts.API.config.WebAuthn = passkey, webauthn }()
 	ts.API.config.Passkey.Enabled = true
@@ -117,7 +117,7 @@ func (ts *SCIMUsersTestSuite) passkeyRegistrationOptions(user *models.User) int 
 	return w.Code
 }
 
-func (ts *SCIMUsersTestSuite) TestPasswordUserWithSameEmailIsNeverLinked() {
+func (ts *SCIMTestSuite) TestPasswordUserWithSameEmailIsNeverLinked() {
 	password, err := models.NewUser("", "alice@example.com", "", ts.API.config.JWT.Aud, nil)
 	require.NoError(ts.T(), err)
 	require.NoError(ts.T(), ts.API.db.Create(password))
@@ -133,15 +133,15 @@ func (ts *SCIMUsersTestSuite) TestPasswordUserWithSameEmailIsNeverLinked() {
 	require.Empty(ts.T(), ts.identities(reloaded))
 }
 
-func (ts *SCIMUsersTestSuite) TestNonSSOUserWithSSOIdentityEmailIsNeverLinked() {
+func (ts *SCIMTestSuite) TestNonSSOUserWithSSOIdentityEmailIsNeverLinked() {
 	ts.requireNonSSOUserNeverLinked("saml-name-id")
 }
 
-func (ts *SCIMUsersTestSuite) TestNonSSOUserWithSSOIdentitySubjectIsNeverLinked() {
+func (ts *SCIMTestSuite) TestNonSSOUserWithSSOIdentitySubjectIsNeverLinked() {
 	ts.requireNonSSOUserNeverLinked("Alice@Example.com")
 }
 
-func (ts *SCIMUsersTestSuite) requireNonSSOUserNeverLinked(sub string) {
+func (ts *SCIMTestSuite) requireNonSSOUserNeverLinked(sub string) {
 	password, err := models.NewUser("", "alice@example.com", "", ts.API.config.JWT.Aud, nil)
 	require.NoError(ts.T(), err)
 	require.NoError(ts.T(), ts.API.db.Create(password))
@@ -159,7 +159,7 @@ func (ts *SCIMUsersTestSuite) requireNonSSOUserNeverLinked(sub string) {
 	require.Zero(ts.T(), ts.countRows(&models.SCIMUser{}, "user_id = ?", password.ID))
 }
 
-func (ts *SCIMUsersTestSuite) TestLinkAccountKeepsUserSSO() {
+func (ts *SCIMTestSuite) TestLinkAccountKeepsUserSSO() {
 	password, err := models.NewUser("", "alice@example.com", "", ts.API.config.JWT.Aud, nil)
 	require.NoError(ts.T(), err)
 	require.NoError(ts.T(), ts.API.db.Create(password))
@@ -174,7 +174,7 @@ func (ts *SCIMUsersTestSuite) TestLinkAccountKeepsUserSSO() {
 	require.Empty(ts.T(), ts.identities(password))
 }
 
-func (ts *SCIMUsersTestSuite) TestOldEmailCannotSignInAfterEmailChange() {
+func (ts *SCIMTestSuite) TestOldEmailCannotSignInAfterEmailChange() {
 	id := ts.create(ts.TokenA, oktaUser)
 	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, ts.withEmail("alice.smith@example.com"))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
@@ -206,11 +206,11 @@ func (ts *SCIMUsersTestSuite) TestOldEmailCannotSignInAfterEmailChange() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) withEmail(email string) string {
+func (ts *SCIMTestSuite) withEmail(email string) string {
 	return strings.Replace(oktaUser, `"value": "alice@example.com"`, `"value": "`+email+`"`, 1)
 }
 
-func (ts *SCIMUsersTestSuite) TestReplaceChangesEmail() {
+func (ts *SCIMTestSuite) TestReplaceChangesEmail() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 
@@ -229,7 +229,7 @@ func (ts *SCIMUsersTestSuite) TestReplaceChangesEmail() {
 	require.Equal(ts.T(), user.ID, signedIn.ID)
 }
 
-func (ts *SCIMUsersTestSuite) TestReplaceChangingEmailClearsPendingTokens() {
+func (ts *SCIMTestSuite) TestReplaceChangingEmailClearsPendingTokens() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 	user.RecoveryToken = "recovery-token-hash"
@@ -243,7 +243,7 @@ func (ts *SCIMUsersTestSuite) TestReplaceChangingEmailClearsPendingTokens() {
 	require.Zero(ts.T(), ts.countRows(&models.OneTimeToken{}, "user_id = ?", user.ID))
 }
 
-func (ts *SCIMUsersTestSuite) TestReplaceRenamesAndChangesEmail() {
+func (ts *SCIMTestSuite) TestReplaceRenamesAndChangesEmail() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 
@@ -262,7 +262,7 @@ func (ts *SCIMUsersTestSuite) TestReplaceRenamesAndChangesEmail() {
 	require.Equal(ts.T(), user.ID, signedIn.ID)
 }
 
-func (ts *SCIMUsersTestSuite) TestReplaceRejectsEmailTakenInProvider() {
+func (ts *SCIMTestSuite) TestReplaceRejectsEmailTakenInProvider() {
 	id := ts.create(ts.TokenA, oktaUser)
 	ts.ssoUser(ts.A, "bob", "bob@example.com")
 
@@ -272,7 +272,7 @@ func (ts *SCIMUsersTestSuite) TestReplaceRejectsEmailTakenInProvider() {
 	require.Equal(ts.T(), "alice@example.com", ts.linkedUser(id).GetEmail())
 }
 
-func (ts *SCIMUsersTestSuite) TestReplaceAllowsEmailTakenInAnotherProvider() {
+func (ts *SCIMTestSuite) TestReplaceAllowsEmailTakenInAnotherProvider() {
 	id := ts.create(ts.TokenA, oktaUser)
 	ts.ssoUser(ts.B, "bob", "bob@example.com")
 
@@ -281,7 +281,7 @@ func (ts *SCIMUsersTestSuite) TestReplaceAllowsEmailTakenInAnotherProvider() {
 	require.Equal(ts.T(), "bob@example.com", ts.linkedUser(id).GetEmail())
 }
 
-func (ts *SCIMUsersTestSuite) TestRemovingEmailsKeepsUserEmail() {
+func (ts *SCIMTestSuite) TestRemovingEmailsKeepsUserEmail() {
 	id := ts.create(ts.TokenA, strings.Replace(oktaUser, `"userName": "Alice@Example.com"`, `"userName": "alice.smith"`, 1))
 	user := ts.linkedUser(id)
 
@@ -300,7 +300,7 @@ func (ts *SCIMUsersTestSuite) TestRemovingEmailsKeepsUserEmail() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateInactiveLogsOutWithoutBanning() {
+func (ts *SCIMTestSuite) TestCreateInactiveLogsOutWithoutBanning() {
 	existing := ts.ssoUser(ts.A, "Alice@Example.com", "alice@example.com")
 	ts.session(existing)
 
@@ -310,7 +310,7 @@ func (ts *SCIMUsersTestSuite) TestCreateInactiveLogsOutWithoutBanning() {
 	require.Zero(ts.T(), ts.sessions(user))
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateRejectsSharedUser() {
+func (ts *SCIMTestSuite) TestCreateRejectsSharedUser() {
 	ts.create(ts.TokenA, oktaUser)
 
 	w, body := ts.do(ts.TokenA, http.MethodPost, "/Users", strings.Replace(oktaUser, `"userName": "Alice@Example.com"`, `"userName": "alice.smith"`, 1))
@@ -319,13 +319,13 @@ func (ts *SCIMUsersTestSuite) TestCreateRejectsSharedUser() {
 	require.EqualValues(ts.T(), 0, ts.list(ts.TokenA, `userName eq "alice.smith"`)["totalResults"])
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateRequiresEmail() {
+func (ts *SCIMTestSuite) TestCreateRequiresEmail() {
 	w, body := ts.do(ts.TokenA, http.MethodPost, "/Users", `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"alice"}`)
 	require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
 	require.Equal(ts.T(), "invalidValue", body["scimType"])
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateFallsBackToEmailUserName() {
+func (ts *SCIMTestSuite) TestCreateFallsBackToEmailUserName() {
 	id := ts.create(ts.TokenA, `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"Alice@Example.com"}`)
 	user := ts.linkedUser(id)
 	require.Equal(ts.T(), "alice@example.com", user.GetEmail())
@@ -335,7 +335,7 @@ func (ts *SCIMUsersTestSuite) TestCreateFallsBackToEmailUserName() {
 	require.Equal(ts.T(), user.ID, signedIn.ID)
 }
 
-func (ts *SCIMUsersTestSuite) TestRejectsInvalidEmailsValue() {
+func (ts *SCIMTestSuite) TestRejectsInvalidEmailsValue() {
 	invalid := strings.Replace(oktaUser, `"value": "alice@example.com"`, `"value": "not-an-email"`, 1)
 	w, body := ts.do(ts.TokenA, http.MethodPost, "/Users", invalid)
 	require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
@@ -355,14 +355,14 @@ func (ts *SCIMUsersTestSuite) TestRejectsInvalidEmailsValue() {
 	require.Equal(ts.T(), "alice@example.com", ts.linkedUser(id).GetEmail())
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateKeepsAdminBan() {
+func (ts *SCIMTestSuite) TestCreateKeepsAdminBan() {
 	existing := ts.ssoUser(ts.A, "Alice@Example.com", "alice@example.com")
 	require.NoError(ts.T(), existing.Ban(ts.API.db, time.Hour))
 
 	require.True(ts.T(), ts.linkedUser(ts.create(ts.TokenA, oktaUser)).IsBanned())
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateLeavesNoUserOnConflict() {
+func (ts *SCIMTestSuite) TestCreateLeavesNoUserOnConflict() {
 	ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 
 	w, _ := ts.do(ts.TokenA, http.MethodPost, "/Users", userWith("bob@example.com", "a-1"))
@@ -372,19 +372,19 @@ func (ts *SCIMUsersTestSuite) TestCreateLeavesNoUserOnConflict() {
 	require.Zero(ts.T(), count)
 }
 
-func (ts *SCIMUsersTestSuite) session(user *models.User) {
+func (ts *SCIMTestSuite) session(user *models.User) {
 	session, err := models.NewSession(user.ID, nil)
 	require.NoError(ts.T(), err)
 	require.NoError(ts.T(), ts.API.db.Create(session))
 }
 
-func (ts *SCIMUsersTestSuite) refreshToken(user *models.User) string {
+func (ts *SCIMTestSuite) refreshToken(user *models.User) string {
 	token, err := models.GrantAuthenticatedUser(ts.API.db, user, models.GrantParams{})
 	require.NoError(ts.T(), err)
 	return token.Token
 }
 
-func (ts *SCIMUsersTestSuite) refresh(token string) int {
+func (ts *SCIMTestSuite) refresh(token string) int {
 	r := httptest.NewRequest(http.MethodPost, "/token?grant_type=refresh_token", strings.NewReader(`{"refresh_token":"`+token+`"}`))
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -392,13 +392,13 @@ func (ts *SCIMUsersTestSuite) refresh(token string) int {
 	return w.Code
 }
 
-func (ts *SCIMUsersTestSuite) sessions(user *models.User) int {
+func (ts *SCIMTestSuite) sessions(user *models.User) int {
 	count, err := ts.API.db.Q().Where("user_id = ?", user.ID).Count(&models.Session{})
 	require.NoError(ts.T(), err)
 	return count
 }
 
-func (ts *SCIMUsersTestSuite) samlLogin(ssoProvider *models.SSOProvider, sub, email string) (*models.User, error) {
+func (ts *SCIMTestSuite) samlLogin(ssoProvider *models.SSOProvider, sub, email string) (*models.User, error) {
 	userData := &provider.UserProvidedData{
 		Metadata: &provider.Claims{
 			Subject:       sub,
@@ -414,7 +414,7 @@ func (ts *SCIMUsersTestSuite) samlLogin(ssoProvider *models.SSOProvider, sub, em
 	return ts.samlLoginWith(ssoProvider, userData)
 }
 
-func (ts *SCIMUsersTestSuite) samlLoginWith(ssoProvider *models.SSOProvider, userData *provider.UserProvidedData) (*models.User, error) {
+func (ts *SCIMTestSuite) samlLoginWith(ssoProvider *models.SSOProvider, userData *provider.UserProvidedData) (*models.User, error) {
 	r := httptest.NewRequest(http.MethodPost, "/sso/saml/acs", nil)
 
 	var user *models.User
@@ -426,7 +426,7 @@ func (ts *SCIMUsersTestSuite) samlLoginWith(ssoProvider *models.SSOProvider, use
 	return user, err
 }
 
-func (ts *SCIMUsersTestSuite) TestSAMLLoginLocksVerifiedEmailWithoutMetadataEmail() {
+func (ts *SCIMTestSuite) TestSAMLLoginLocksVerifiedEmailWithoutMetadataEmail() {
 	userData := &provider.UserProvidedData{
 		Metadata: &provider.Claims{Subject: "saml-name-id", EmailVerified: true},
 		Emails:   []provider.Email{{Email: "Alice@Example.com", Primary: true, Verified: true}},
@@ -452,7 +452,7 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginLocksVerifiedEmailWithoutMetadataEmai
 	require.NoError(ts.T(), <-done)
 }
 
-func (ts *SCIMUsersTestSuite) TestSAMLLoginAllowedForActiveSCIMUser() {
+func (ts *SCIMTestSuite) TestSAMLLoginAllowedForActiveSCIMUser() {
 	id := ts.create(ts.TokenA, oktaUser)
 	linked := ts.linkedUser(id)
 
@@ -462,7 +462,7 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginAllowedForActiveSCIMUser() {
 	require.Equal(ts.T(), linked.ID, user.ID)
 }
 
-func (ts *SCIMUsersTestSuite) TestSAMLLoginAllowedForDeprovisionedUserWhileSCIMFlagOff() {
+func (ts *SCIMTestSuite) TestSAMLLoginAllowedForDeprovisionedUserWhileSCIMFlagOff() {
 	id := ts.create(ts.TokenA, oktaUser)
 	linked := ts.linkedUser(id)
 	ts.setActive(id, false)
@@ -474,7 +474,7 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginAllowedForDeprovisionedUserWhileSCIMF
 	require.Equal(ts.T(), linked.ID, user.ID)
 }
 
-func (ts *SCIMUsersTestSuite) TestSAMLLoginBlockedWhilePATCHedInactive() {
+func (ts *SCIMTestSuite) TestSAMLLoginBlockedWhilePATCHedInactive() {
 	id := ts.create(ts.TokenA, oktaUser)
 	ts.setActive(id, false)
 
@@ -489,7 +489,7 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginBlockedWhilePATCHedInactive() {
 	require.Equal(ts.T(), linked.ID, user.ID)
 }
 
-func (ts *SCIMUsersTestSuite) TestSAMLLoginBlockedAfterDelete() {
+func (ts *SCIMTestSuite) TestSAMLLoginBlockedAfterDelete() {
 	id := ts.create(ts.TokenA, oktaUser)
 
 	w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+id, "")
@@ -504,7 +504,7 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginBlockedAfterDelete() {
 	require.Error(ts.T(), err)
 }
 
-func (ts *SCIMUsersTestSuite) TestSAMLLoginBlockedWhenCreatedInactive() {
+func (ts *SCIMTestSuite) TestSAMLLoginBlockedWhenCreatedInactive() {
 	id := ts.create(ts.TokenA, strings.Replace(oktaUser, `"active": true`, `"active": false`, 1))
 	ts.linkedUser(id)
 
@@ -512,7 +512,7 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginBlockedWhenCreatedInactive() {
 	require.Error(ts.T(), err)
 }
 
-func (ts *SCIMUsersTestSuite) TestSAMLLoginAllowedWhenActiveOmitted() {
+func (ts *SCIMTestSuite) TestSAMLLoginAllowedWhenActiveOmitted() {
 	id := ts.create(ts.TokenA, `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"Alice@Example.com","emails":[{"primary":true,"value":"alice@example.com"}]}`)
 	linked := ts.linkedUser(id)
 
@@ -521,7 +521,7 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginAllowedWhenActiveOmitted() {
 	require.Equal(ts.T(), linked.ID, user.ID)
 }
 
-func (ts *SCIMUsersTestSuite) TestSAMLLoginAllowedWithoutSCIMRow() {
+func (ts *SCIMTestSuite) TestSAMLLoginAllowedWithoutSCIMRow() {
 	existing := ts.ssoUser(ts.A, "jit-user", "jit@example.com")
 
 	user, err := ts.samlLogin(ts.A, "jit-user", "jit@example.com")
@@ -530,7 +530,7 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginAllowedWithoutSCIMRow() {
 	require.Equal(ts.T(), existing.ID, user.ID)
 }
 
-func (ts *SCIMUsersTestSuite) TestSAMLLoginLinksDivergedNameIDToSCIMUser() {
+func (ts *SCIMTestSuite) TestSAMLLoginLinksDivergedNameIDToSCIMUser() {
 	linked := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
 
 	for range 2 {
@@ -551,7 +551,7 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginLinksDivergedNameIDToSCIMUser() {
 	require.ElementsMatch(ts.T(), []string{"Alice@Example.com", "saml-name-id"}, providerIDs)
 }
 
-func (ts *SCIMUsersTestSuite) TestSAMLLoginBlockedForDivergedNameIDWhileInactive() {
+func (ts *SCIMTestSuite) TestSAMLLoginBlockedForDivergedNameIDWhileInactive() {
 	id := ts.create(ts.TokenA, oktaUser)
 	ts.setActive(id, false)
 	linked := ts.linkedUser(id)
@@ -561,13 +561,13 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginBlockedForDivergedNameIDWhileInactive
 	require.Len(ts.T(), ts.identities(linked), 1)
 }
 
-func (ts *SCIMUsersTestSuite) users(email string) int {
+func (ts *SCIMTestSuite) users(email string) int {
 	count, err := ts.API.db.Q().Where("email = ?", email).Count(&models.User{})
 	require.NoError(ts.T(), err)
 	return count
 }
 
-func (ts *SCIMUsersTestSuite) TestSAMLLoginAllowsJITWithoutSCIMToken() {
+func (ts *SCIMTestSuite) TestSAMLLoginAllowsJITWithoutSCIMToken() {
 	provider := createSSOProvider(ts.T(), ts.API.db)
 
 	user, err := ts.samlLogin(provider, "jit-user", "jit@example.com")
@@ -576,7 +576,7 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginAllowsJITWithoutSCIMToken() {
 	require.Equal(ts.T(), "jit@example.com", user.GetEmail())
 }
 
-func (ts *SCIMUsersTestSuite) TestSAMLLoginAllowsJITWhileSCIMFlagOff() {
+func (ts *SCIMTestSuite) TestSAMLLoginAllowsJITWhileSCIMFlagOff() {
 	ts.API.config.SSO.SCIM.Enabled = false
 	defer func() { ts.API.config.SSO.SCIM.Enabled = true }()
 
@@ -586,7 +586,7 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginAllowsJITWhileSCIMFlagOff() {
 	require.Equal(ts.T(), "jit@example.com", user.GetEmail())
 }
 
-func (ts *SCIMUsersTestSuite) TestSAMLLoginNotBlockedByOtherProvider() {
+func (ts *SCIMTestSuite) TestSAMLLoginNotBlockedByOtherProvider() {
 	id := ts.create(ts.TokenB, oktaUser)
 	w, _ := ts.do(ts.TokenB, http.MethodPatch, "/Users/"+id, `{
 		"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
@@ -601,20 +601,20 @@ func (ts *SCIMUsersTestSuite) TestSAMLLoginNotBlockedByOtherProvider() {
 	require.Equal(ts.T(), existing.ID, user.ID)
 }
 
-func (ts *SCIMUsersTestSuite) issueSession(conn *storage.Connection, user *models.User) error {
+func (ts *SCIMTestSuite) issueSession(conn *storage.Connection, user *models.User) error {
 	r := httptest.NewRequest(http.MethodPost, "/token", nil)
 	_, err := ts.API.tokenService.IssueRefreshToken(r, http.Header{}, conn, user, models.OAuth, models.GrantParams{})
 	return err
 }
 
-func (ts *SCIMUsersTestSuite) requireBanned(err error) {
+func (ts *SCIMTestSuite) requireBanned(err error) {
 	var httpErr *apierrors.HTTPError
 	require.ErrorAs(ts.T(), err, &httpErr)
 	require.Equal(ts.T(), http.StatusForbidden, httpErr.HTTPStatus)
 	require.Equal(ts.T(), apierrors.ErrorCodeUserBanned, httpErr.ErrorCode)
 }
 
-func (ts *SCIMUsersTestSuite) TestSessionRefusedWhileDeprovisioned() {
+func (ts *SCIMTestSuite) TestSessionRefusedWhileDeprovisioned() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 	require.NoError(ts.T(), ts.issueSession(ts.API.db, user))
@@ -635,7 +635,7 @@ func (ts *SCIMUsersTestSuite) TestSessionRefusedWhileDeprovisioned() {
 	ts.requireBanned(ts.issueSession(ts.API.db, user))
 }
 
-func (ts *SCIMUsersTestSuite) TestSessionAllowedWhileSCIMFlagOff() {
+func (ts *SCIMTestSuite) TestSessionAllowedWhileSCIMFlagOff() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 	ts.setActive(id, false)
@@ -645,7 +645,7 @@ func (ts *SCIMUsersTestSuite) TestSessionAllowedWhileSCIMFlagOff() {
 	require.NoError(ts.T(), ts.issueSession(ts.API.db, user))
 }
 
-func (ts *SCIMUsersTestSuite) TestSessionRefusedForLinkedOAuthIdentityWhileDeprovisioned() {
+func (ts *SCIMTestSuite) TestSessionRefusedForLinkedOAuthIdentityWhileDeprovisioned() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 	identity, err := models.NewIdentity(user, "google", map[string]any{"sub": "google-sub", "email": "alice@example.com"})
@@ -669,7 +669,7 @@ func (ts *SCIMUsersTestSuite) TestSessionRefusedForLinkedOAuthIdentityWhileDepro
 	require.Zero(ts.T(), ts.sessions(user))
 }
 
-func (ts *SCIMUsersTestSuite) TestSessionWaitsForConcurrentDeactivation() {
+func (ts *SCIMTestSuite) TestSessionWaitsForConcurrentDeactivation() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 	locked, release := make(chan struct{}), make(chan struct{})
@@ -703,7 +703,7 @@ func (ts *SCIMUsersTestSuite) TestSessionWaitsForConcurrentDeactivation() {
 	require.Zero(ts.T(), ts.sessions(user))
 }
 
-func (ts *SCIMUsersTestSuite) TestWritesWaitForAdminUserDelete() {
+func (ts *SCIMTestSuite) TestWritesWaitForAdminUserDelete() {
 	for _, method := range []string{http.MethodDelete, http.MethodPut} {
 		body := userWith(strings.ToLower(method)+"@example.com", method)
 		id := ts.create(ts.TokenA, body)
@@ -721,16 +721,16 @@ func (ts *SCIMUsersTestSuite) TestWritesWaitForAdminUserDelete() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestSessionAllowedForSSOUserWithoutSCIMRow() {
+func (ts *SCIMTestSuite) TestSessionAllowedForSSOUserWithoutSCIMRow() {
 	user := ts.ssoUser(ts.A, "saml-sub", "carol@example.com")
 	require.NoError(ts.T(), ts.issueSession(ts.API.db, user))
 }
 
-func (ts *SCIMUsersTestSuite) setActive(id string, active bool) {
+func (ts *SCIMTestSuite) setActive(id string, active bool) {
 	ts.setActiveAs(ts.TokenA, id, active)
 }
 
-func (ts *SCIMUsersTestSuite) setActiveAs(token, id string, active bool) {
+func (ts *SCIMTestSuite) setActiveAs(token, id string, active bool) {
 	w, _ := ts.do(token, http.MethodPatch, "/Users/"+id, `{
 		"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
 		"Operations": [{"op": "replace", "value": {"active": `+strconv.FormatBool(active)+`}}]
@@ -738,7 +738,7 @@ func (ts *SCIMUsersTestSuite) setActiveAs(token, id string, active bool) {
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 }
 
-func (ts *SCIMUsersTestSuite) TestReplaceDeactivatesAndReactivates() {
+func (ts *SCIMTestSuite) TestReplaceDeactivatesAndReactivates() {
 	id := ts.create(ts.TokenA, oktaUser)
 	require.Equal(ts.T(), http.StatusOK, ts.refresh(ts.refreshToken(ts.linkedUser(id))))
 	refreshToken := ts.refreshToken(ts.linkedUser(id))
@@ -760,7 +760,7 @@ func (ts *SCIMUsersTestSuite) TestReplaceDeactivatesAndReactivates() {
 	require.Equal(ts.T(), http.StatusBadRequest, ts.refresh(refreshToken))
 }
 
-func (ts *SCIMUsersTestSuite) TestPutInactiveRevokesSessions() {
+func (ts *SCIMTestSuite) TestPutInactiveRevokesSessions() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 	refreshToken := ts.refreshToken(user)
@@ -773,7 +773,7 @@ func (ts *SCIMUsersTestSuite) TestPutInactiveRevokesSessions() {
 	require.Len(ts.T(), ts.auditActions(models.SCIMUserDeactivatedAction), 1)
 }
 
-func (ts *SCIMUsersTestSuite) TestReplaceKeepsAdminBanWhenActiveDoesNotChange() {
+func (ts *SCIMTestSuite) TestReplaceKeepsAdminBanWhenActiveDoesNotChange() {
 	id := ts.create(ts.TokenA, oktaUser)
 	require.NoError(ts.T(), ts.linkedUser(id).Ban(ts.API.db, time.Hour))
 
@@ -781,7 +781,7 @@ func (ts *SCIMUsersTestSuite) TestReplaceKeepsAdminBanWhenActiveDoesNotChange() 
 	require.True(ts.T(), ts.linkedUser(id).IsBanned())
 }
 
-func (ts *SCIMUsersTestSuite) TestReplaceLinksUnlinkedRow() {
+func (ts *SCIMTestSuite) TestReplaceLinksUnlinkedRow() {
 	row, err := models.CreateSCIMUser(ts.API.db, ts.A.ID, []byte(`{"userName":"Alice@Example.com"}`))
 	require.NoError(ts.T(), err)
 
@@ -793,7 +793,7 @@ func (ts *SCIMUsersTestSuite) TestReplaceLinksUnlinkedRow() {
 	require.False(ts.T(), user.IsBanned())
 }
 
-func (ts *SCIMUsersTestSuite) TestDeleteLogsOutWithoutBanning() {
+func (ts *SCIMTestSuite) TestDeleteLogsOutWithoutBanning() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 	refreshToken := ts.refreshToken(user)
@@ -808,7 +808,7 @@ func (ts *SCIMUsersTestSuite) TestDeleteLogsOutWithoutBanning() {
 	require.Equal(ts.T(), http.StatusBadRequest, ts.refresh(refreshToken))
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateRefusesUserDeletedByProvider() {
+func (ts *SCIMTestSuite) TestCreateRefusesUserDeletedByProvider() {
 	for _, body := range []string{oktaUser, strings.Replace(oktaUser, `"userName": "Alice@Example.com"`, `"userName": "alice.new@example.com"`, 1)} {
 		ts.SetupTest()
 		id := ts.create(ts.TokenA, oktaUser)
@@ -827,7 +827,7 @@ func (ts *SCIMUsersTestSuite) TestCreateRefusesUserDeletedByProvider() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateAfterAdminDeletesProviderDeletedUser() {
+func (ts *SCIMTestSuite) TestCreateAfterAdminDeletesProviderDeletedUser() {
 	for _, soft := range []bool{false, true} {
 		ts.SetupTest()
 		id := ts.create(ts.TokenA, oktaUser)
@@ -848,7 +848,7 @@ func (ts *SCIMUsersTestSuite) TestCreateAfterAdminDeletesProviderDeletedUser() {
 	}
 }
 
-func (ts *SCIMUsersTestSuite) TestCreateConcurrentSameEmailLinksToOneUser() {
+func (ts *SCIMTestSuite) TestCreateConcurrentSameEmailLinksToOneUser() {
 	body := func(userName, externalID string) string {
 		return `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"` + userName + `","externalId":"` + externalID + `","emails":[{"primary":true,"value":"race@example.com"}]}`
 	}
@@ -888,12 +888,12 @@ func (ts *SCIMUsersTestSuite) TestCreateConcurrentSameEmailLinksToOneUser() {
 	require.Equal(ts.T(), 1, count)
 }
 
-func (ts *SCIMUsersTestSuite) rename(id, userName string) (int, string) {
+func (ts *SCIMTestSuite) rename(id, userName string) (int, string) {
 	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, strings.Replace(oktaUser, `"userName": "Alice@Example.com"`, `"userName": "`+userName+`"`, 1))
 	return w.Code, w.Body.String()
 }
 
-func (ts *SCIMUsersTestSuite) TestReplaceRenamesSSOIdentity() {
+func (ts *SCIMTestSuite) TestReplaceRenamesSSOIdentity() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 
@@ -907,7 +907,7 @@ func (ts *SCIMUsersTestSuite) TestReplaceRenamesSSOIdentity() {
 	require.Len(ts.T(), ts.identities(user), 1)
 }
 
-func (ts *SCIMUsersTestSuite) providerIDs(user *models.User) []string {
+func (ts *SCIMTestSuite) providerIDs(user *models.User) []string {
 	ids := []string{}
 	for _, identity := range ts.identities(user) {
 		ids = append(ids, identity.ProviderID)
@@ -915,7 +915,7 @@ func (ts *SCIMUsersTestSuite) providerIDs(user *models.User) []string {
 	return ids
 }
 
-func (ts *SCIMUsersTestSuite) TestReplaceRenamesCaseOnly() {
+func (ts *SCIMTestSuite) TestReplaceRenamesCaseOnly() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 	_, err := ts.samlLogin(ts.A, "alice@example.com", "alice@example.com")
@@ -933,7 +933,7 @@ func (ts *SCIMUsersTestSuite) TestReplaceRenamesCaseOnly() {
 	require.Equal(ts.T(), user.ID, signedIn.ID)
 }
 
-func (ts *SCIMUsersTestSuite) TestReplaceRenameRemovesOldNameIDIdentity() {
+func (ts *SCIMTestSuite) TestReplaceRenameRemovesOldNameIDIdentity() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 	_, err := ts.samlLogin(ts.A, "alice@example.com", "alice@example.com")
@@ -950,7 +950,7 @@ func (ts *SCIMUsersTestSuite) TestReplaceRenameRemovesOldNameIDIdentity() {
 	require.NotEqual(ts.T(), user.ID, signedIn.ID)
 }
 
-func (ts *SCIMUsersTestSuite) TestReplaceRejectsRenameToTakenIdentity() {
+func (ts *SCIMTestSuite) TestReplaceRejectsRenameToTakenIdentity() {
 	id := ts.create(ts.TokenA, oktaUser)
 	ts.ssoUser(ts.A, "bob@example.com", "bob@example.com")
 
@@ -964,7 +964,7 @@ func (ts *SCIMUsersTestSuite) TestReplaceRejectsRenameToTakenIdentity() {
 	require.NoError(ts.T(), err)
 }
 
-func (ts *SCIMUsersTestSuite) unlink(user *models.User, identity *models.Identity) *httptest.ResponseRecorder {
+func (ts *SCIMTestSuite) unlink(user *models.User, identity *models.Identity) *httptest.ResponseRecorder {
 	session, err := models.NewSession(user.ID, nil)
 	require.NoError(ts.T(), err)
 	require.NoError(ts.T(), ts.API.db.Create(session))
@@ -977,7 +977,7 @@ func (ts *SCIMUsersTestSuite) unlink(user *models.User, identity *models.Identit
 	return w
 }
 
-func (ts *SCIMUsersTestSuite) TestUnlinkRefusedForSCIMManagedIdentity() {
+func (ts *SCIMTestSuite) TestUnlinkRefusedForSCIMManagedIdentity() {
 	ts.API.config.Security.ManualLinkingEnabled = true
 	defer func() { ts.API.config.Security.ManualLinkingEnabled = false }()
 	id := ts.create(ts.TokenA, oktaUser)
@@ -1005,7 +1005,7 @@ func (ts *SCIMUsersTestSuite) TestUnlinkRefusedForSCIMManagedIdentity() {
 	require.Len(ts.T(), ts.identities(user), 1)
 }
 
-func (ts *SCIMUsersTestSuite) TestUnlinkAllowedWhileSCIMFlagOff() {
+func (ts *SCIMTestSuite) TestUnlinkAllowedWhileSCIMFlagOff() {
 	ts.API.config.Security.ManualLinkingEnabled = true
 	defer func() { ts.API.config.Security.ManualLinkingEnabled = false }()
 	user := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
@@ -1022,7 +1022,7 @@ func (ts *SCIMUsersTestSuite) TestUnlinkAllowedWhileSCIMFlagOff() {
 	require.Len(ts.T(), ts.identities(user), 1)
 }
 
-func (ts *SCIMUsersTestSuite) TestRenameSkippedWhenIdentityMissing() {
+func (ts *SCIMTestSuite) TestRenameSkippedWhenIdentityMissing() {
 	id := ts.create(ts.TokenA, oktaUser)
 	user := ts.linkedUser(id)
 	sso, err := models.FindIdentityByIdAndProvider(ts.API.db, "Alice@Example.com", "sso:"+ts.A.ID.String())
