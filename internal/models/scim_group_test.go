@@ -147,6 +147,24 @@ func (ts *SCIMGroupTestSuite) TestDeleteRemovesMembers() {
 	require.ErrorIs(ts.T(), err, SCIMGroupNotFoundError{})
 }
 
+func (ts *SCIMGroupTestSuite) TestVersionedWriteToMissingRowIsNotFound() {
+	group := ts.createGroup(ts.provider.ID, "Engineering")
+	alice := ts.createUser(ts.provider.ID, "alice")
+
+	_, err := ReplaceSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.createProvider().ID, ID: group.ID, UpdatedAt: &group.UpdatedAt}, []byte(`{"displayName":"Other"}`))
+	require.ErrorIs(ts.T(), err, SCIMGroupNotFoundError{})
+
+	_, err = DeleteSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID})
+	require.NoError(ts.T(), err)
+	_, err = DeleteSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID, UpdatedAt: &group.UpdatedAt})
+	require.ErrorIs(ts.T(), err, SCIMGroupNotFoundError{})
+
+	_, err = DeleteSCIMUser(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: alice.ID})
+	require.NoError(ts.T(), err)
+	_, err = DeleteSCIMUser(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: alice.ID, UpdatedAt: &alice.UpdatedAt})
+	require.ErrorIs(ts.T(), err, SCIMUserNotFoundError{})
+}
+
 func (ts *SCIMGroupTestSuite) TestReplaceMembersDiffs() {
 	group := ts.createGroup(ts.provider.ID, "Engineering")
 	alice := ts.createUser(ts.provider.ID, "Alice")
