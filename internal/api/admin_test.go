@@ -909,7 +909,7 @@ func (ts *AdminTestSuite) TestAdminUserDeleteSoftDeletesSCIMUser() {
 			scimUser, u := ts.createLinkedSCIMUser(c.wantEmail)
 			group, err := models.CreateSCIMGroup(ts.API.db, scimUser.SSOProviderID, []byte(`{"displayName":"Engineering"}`))
 			require.NoError(ts.T(), err)
-			_, _, err = models.ReplaceSCIMGroupMembers(ts.API.db, group, []uuid.UUID{scimUser.ID})
+			_, _, _, err = models.ReplaceSCIMGroupMembers(ts.API.db, group, []uuid.UUID{scimUser.ID})
 			require.NoError(ts.T(), err)
 
 			var buffer bytes.Buffer

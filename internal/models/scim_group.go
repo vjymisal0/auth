@@ -128,20 +128,31 @@ func FindSCIMMembershipsByUser(tx *storage.Connection, providerID uuid.UUID, sci
 	return memberships, nil
 }
 
-func ReplaceSCIMGroupMembers(tx *storage.Connection, group *SCIMGroup, scimUserIDs []uuid.UUID) (added, removed []uuid.UUID, err error) {
+func ReplaceSCIMGroupMembers(tx *storage.Connection, group *SCIMGroup, scimUserIDs []uuid.UUID) (added, removed, members []uuid.UUID, err error) {
 	current, err := findSCIMGroupMemberIDs(tx, group.ID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	removed = differenceUUIDs(current, scimUserIDs)
 	if err := removeSCIMGroupMembers(tx, group.ID, removed); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	added, err = addSCIMGroupMembers(tx, group, differenceUUIDs(scimUserIDs, current))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return added, removed, nil
+	return added, removed, append(differenceUUIDs(current, removed), added...), nil
+}
+
+func ClearSCIMGroupMembers(tx *storage.Connection, groupID uuid.UUID) ([]uuid.UUID, error) {
+	removed := []uuid.UUID{}
+	if err := tx.RawQuery(
+		fmt.Sprintf("DELETE FROM %q WHERE group_id = ? RETURNING scim_user_id", SCIMGroupMember{}.TableName()),
+		groupID,
+	).All(&removed); err != nil {
+		return nil, errors.Wrap(err, "error removing SCIM group members")
+	}
+	return removed, nil
 }
 
 func RemoveSCIMUserFromGroups(tx *storage.Connection, scimUserID uuid.UUID) ([]uuid.UUID, error) {
@@ -191,7 +202,7 @@ func lockLiveSCIMUserIDs(tx *storage.Connection, providerID uuid.UUID, ids []uui
 func findSCIMGroupMemberIDs(tx *storage.Connection, groupID uuid.UUID) ([]uuid.UUID, error) {
 	ids := []uuid.UUID{}
 	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT scim_user_id FROM %q WHERE group_id = ?", SCIMGroupMember{}.TableName()),
+		fmt.Sprintf("SELECT scim_user_id FROM %q WHERE group_id = ? ORDER BY created_at, scim_user_id", SCIMGroupMember{}.TableName()),
 		groupID,
 	).All(&ids); err != nil {
 		return nil, errors.Wrap(err, "error finding SCIM group members")

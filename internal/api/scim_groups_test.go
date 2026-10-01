@@ -403,7 +403,7 @@ func (ts *SCIMTestSuite) TestUserDeleteWaitsForGroupWrite() {
 			return err
 		},
 		func(tx *storage.Connection) error {
-			_, _, err := models.ReplaceSCIMGroupMembers(tx, group, []uuid.UUID{uuid.FromStringOrNil(bob)})
+			_, _, _, err := models.ReplaceSCIMGroupMembers(tx, group, []uuid.UUID{uuid.FromStringOrNil(bob)})
 			return err
 		},
 		http.MethodDelete, "/Users/"+alice, "",
@@ -629,4 +629,23 @@ func (ts *SCIMTestSuite) requireGroup(step, group, displayName string, members [
 	require.Equal(ts.T(), http.StatusOK, w.Code, step)
 	require.Equal(ts.T(), displayName, got["displayName"], step)
 	require.ElementsMatch(ts.T(), members, memberValues(got), step)
+}
+
+func (ts *SCIMTestSuite) TestWriteResponseMembersMatchGet() {
+	ids := []string{}
+	for _, name := range []string{"a", "b", "c", "d"} {
+		ids = append(ids, ts.create(ts.TokenA, scimUser(name)))
+	}
+	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "", ids[2], ids[0]))
+	requireMatchesGet := func(method, body string) {
+		w, written := ts.do(ts.TokenA, method, "/Groups/"+id, body)
+		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+		w, got := ts.do(ts.TokenA, http.MethodGet, "/Groups/"+id, "")
+		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+		require.Equal(ts.T(), got["members"], written["members"])
+	}
+	requireMatchesGet(http.MethodPatch, patchOp(`{"op":"add","path":"members","value":[{"value":"`+ids[3]+`"},{"value":"`+ids[1]+`"}]}`))
+	requireMatchesGet(http.MethodPatch, patchOp(`{"op":"remove","path":"members[value eq \"`+ids[2]+`\"]"}`))
+	requireMatchesGet(http.MethodPut, groupWith("Engineering", "", ids[1], ids[2], ids[3]))
+	requireMatchesGet(http.MethodPatch, patchOp(`{"op":"replace","path":"displayName","value":"Platform"}`))
 }

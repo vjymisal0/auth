@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 	"time"
@@ -125,7 +126,7 @@ func (ts *SCIMGroupTestSuite) TestReplaceChecksVersion() {
 func (ts *SCIMGroupTestSuite) TestDeleteRemovesMembers() {
 	group := ts.createGroup(ts.provider.ID, "Engineering")
 	user := ts.createUser(ts.provider.ID, "alice")
-	_, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{user.ID})
+	_, _, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{user.ID})
 	require.NoError(ts.T(), err)
 
 	_, err = DeleteSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID})
@@ -165,12 +166,12 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersDiffs() {
 	bob := ts.createUser(ts.provider.ID, "bob")
 	carol := ts.createUser(ts.provider.ID, "carol")
 
-	added, removed, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, bob.ID, alice.ID})
+	added, removed, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, bob.ID, alice.ID})
 	require.NoError(ts.T(), err)
 	require.ElementsMatch(ts.T(), []uuid.UUID{alice.ID, bob.ID}, added)
 	require.Empty(ts.T(), removed)
 
-	added, removed, err = ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{bob.ID, carol.ID})
+	added, removed, _, err = ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{bob.ID, carol.ID})
 	require.NoError(ts.T(), err)
 	require.Equal(ts.T(), []uuid.UUID{carol.ID}, added)
 	require.Equal(ts.T(), []uuid.UUID{alice.ID}, removed)
@@ -180,7 +181,7 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersDiffs() {
 	require.Len(ts.T(), members, 2)
 	require.ElementsMatch(ts.T(), []uuid.UUID{bob.ID, carol.ID}, []uuid.UUID{members[0].SCIMUserID, members[1].SCIMUserID})
 
-	added, removed, err = ReplaceSCIMGroupMembers(ts.db, group, nil)
+	added, removed, _, err = ReplaceSCIMGroupMembers(ts.db, group, nil)
 	require.NoError(ts.T(), err)
 	require.Empty(ts.T(), added)
 	require.ElementsMatch(ts.T(), []uuid.UUID{bob.ID, carol.ID}, removed)
@@ -191,7 +192,7 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersRejectsOtherProviderUsers() {
 	alice := ts.createUser(ts.provider.ID, "alice")
 	outsider := ts.createUser(ts.createProvider().ID, "mallory")
 
-	_, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, outsider.ID})
+	_, _, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, outsider.ID})
 	require.Equal(ts.T(), SCIMGroupMemberNotFoundError{IDs: []uuid.UUID{outsider.ID}}, err)
 
 	members, err := FindSCIMMembershipsByGroup(ts.db, ts.provider.ID, []uuid.UUID{group.ID})
@@ -205,10 +206,10 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersRejectsDeletedUsers() {
 	_, err := DeleteSCIMUser(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: alice.ID})
 	require.NoError(ts.T(), err)
 
-	_, _, err = ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID})
+	_, _, _, err = ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID})
 	require.Equal(ts.T(), SCIMGroupMemberNotFoundError{IDs: []uuid.UUID{alice.ID}}, err)
 
-	_, _, err = ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{uuid.Must(uuid.NewV4())})
+	_, _, _, err = ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{uuid.Must(uuid.NewV4())})
 	require.ErrorAs(ts.T(), err, &SCIMGroupMemberNotFoundError{})
 }
 
@@ -226,7 +227,7 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersWaitsForConcurrentUserDelete() {
 	result := make(chan error, 1)
 	go func() {
 		result <- ts.db.Transaction(func(tx *storage.Connection) error {
-			_, _, err := ReplaceSCIMGroupMembers(tx, group, []uuid.UUID{alice.ID})
+			_, _, _, err := ReplaceSCIMGroupMembers(tx, group, []uuid.UUID{alice.ID})
 			return err
 		})
 	}()
@@ -243,7 +244,7 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersDoesNotLockExistingMembers() {
 	group := ts.createGroup(ts.provider.ID, "Engineering")
 	alice := ts.createUser(ts.provider.ID, "alice")
 	bob := ts.createUser(ts.provider.ID, "bob")
-	_, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID})
+	_, _, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID})
 	require.NoError(ts.T(), err)
 
 	deleting := ts.beginTx()
@@ -258,7 +259,7 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersDoesNotLockExistingMembers() {
 			if err != nil {
 				return err
 			}
-			_, _, err = ReplaceSCIMGroupMembers(tx, locked, []uuid.UUID{alice.ID, bob.ID})
+			_, _, _, err = ReplaceSCIMGroupMembers(tx, locked, []uuid.UUID{alice.ID, bob.ID})
 			return err
 		})
 	}()
@@ -283,7 +284,7 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersDoesNotLockExistingMembers() {
 func (ts *SCIMGroupTestSuite) TestFindMembersHidesDeletedUsers() {
 	group := ts.createGroup(ts.provider.ID, "Engineering")
 	alice := ts.createUser(ts.provider.ID, "alice")
-	_, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID})
+	_, _, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID})
 	require.NoError(ts.T(), err)
 
 	_, err = DeleteSCIMUser(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: alice.ID})
@@ -298,17 +299,17 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersValidatesOnlyAddedMembers() {
 	group := ts.createGroup(ts.provider.ID, "Engineering")
 	alice := ts.createUser(ts.provider.ID, "alice")
 	bob := ts.createUser(ts.provider.ID, "bob")
-	_, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID})
+	_, _, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID})
 	require.NoError(ts.T(), err)
 	_, err = DeleteSCIMUser(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: alice.ID})
 	require.NoError(ts.T(), err)
 
-	added, removed, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, bob.ID})
+	added, removed, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, bob.ID})
 	require.NoError(ts.T(), err)
 	require.Equal(ts.T(), []uuid.UUID{bob.ID}, added)
 	require.Empty(ts.T(), removed)
 
-	_, _, err = ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, bob.ID, uuid.Nil})
+	_, _, _, err = ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, bob.ID, uuid.Nil})
 	require.Equal(ts.T(), SCIMGroupMemberNotFoundError{IDs: []uuid.UUID{uuid.Nil}}, err)
 }
 
@@ -317,9 +318,9 @@ func (ts *SCIMGroupTestSuite) TestFindMembershipsByUser() {
 	admins := ts.createGroup(ts.provider.ID, "Admins")
 	alice := ts.createUser(ts.provider.ID, "alice")
 	bob := ts.createUser(ts.provider.ID, "bob")
-	_, _, err := ReplaceSCIMGroupMembers(ts.db, engineering, []uuid.UUID{alice.ID, bob.ID})
+	_, _, _, err := ReplaceSCIMGroupMembers(ts.db, engineering, []uuid.UUID{alice.ID, bob.ID})
 	require.NoError(ts.T(), err)
-	_, _, err = ReplaceSCIMGroupMembers(ts.db, admins, []uuid.UUID{alice.ID})
+	_, _, _, err = ReplaceSCIMGroupMembers(ts.db, admins, []uuid.UUID{alice.ID})
 	require.NoError(ts.T(), err)
 
 	groups, err := FindSCIMMembershipsByUser(ts.db, ts.provider.ID, []uuid.UUID{alice.ID, bob.ID})
@@ -350,4 +351,34 @@ func (ts *SCIMGroupTestSuite) lockWaiters() int {
 	}{}
 	require.NoError(ts.T(), ts.db.RawQuery("SELECT count(*) AS count FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'").First(&row))
 	return row.Count
+}
+
+func (ts *SCIMGroupTestSuite) TestReplaceMembersReturnsMembersInRenderOrder() {
+	group := ts.createGroup(ts.provider.ID, "Engineering")
+	alice := ts.createUser(ts.provider.ID, "alice")
+	bob := ts.createUser(ts.provider.ID, "bob")
+	carol := ts.createUser(ts.provider.ID, "carol")
+	_, _, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, bob.ID})
+	require.NoError(ts.T(), err)
+	first, second := sortedUUIDs(alice.ID, bob.ID)
+	require.NoError(ts.T(), ts.db.RawQuery("UPDATE "+SCIMGroupMember{}.TableName()+" SET created_at = created_at - interval '1 day' WHERE scim_user_id = ?", second).Exec())
+
+	_, _, members, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, bob.ID, carol.ID})
+	require.NoError(ts.T(), err)
+	require.Equal(ts.T(), []uuid.UUID{second, first, carol.ID}, members)
+
+	rendered, err := FindSCIMMembershipsByGroup(ts.db, ts.provider.ID, []uuid.UUID{group.ID})
+	require.NoError(ts.T(), err)
+	ids := make([]uuid.UUID, len(rendered))
+	for i, m := range rendered {
+		ids[i] = m.SCIMUserID
+	}
+	require.Equal(ts.T(), ids, members)
+}
+
+func sortedUUIDs(a, b uuid.UUID) (uuid.UUID, uuid.UUID) {
+	if bytes.Compare(a.Bytes(), b.Bytes()) > 0 {
+		return b, a
+	}
+	return a, b
 }
