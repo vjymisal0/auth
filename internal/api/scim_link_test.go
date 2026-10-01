@@ -133,6 +133,32 @@ func (ts *SCIMUsersTestSuite) TestPasswordUserWithSameEmailIsNeverLinked() {
 	require.Empty(ts.T(), ts.identities(reloaded))
 }
 
+func (ts *SCIMUsersTestSuite) TestNonSSOUserWithSSOIdentityEmailIsNeverLinked() {
+	ts.requireNonSSOUserNeverLinked("saml-name-id")
+}
+
+func (ts *SCIMUsersTestSuite) TestNonSSOUserWithSSOIdentitySubjectIsNeverLinked() {
+	ts.requireNonSSOUserNeverLinked("Alice@Example.com")
+}
+
+func (ts *SCIMUsersTestSuite) requireNonSSOUserNeverLinked(sub string) {
+	password, err := models.NewUser("", "alice@example.com", "", ts.API.config.JWT.Aud, nil)
+	require.NoError(ts.T(), err)
+	require.NoError(ts.T(), ts.API.db.Create(password))
+	identity, err := models.NewIdentity(password, "sso:"+ts.A.ID.String(), map[string]any{"sub": sub, "email": "alice@example.com", "email_verified": true})
+	require.NoError(ts.T(), err)
+	require.NoError(ts.T(), ts.API.db.Create(identity))
+
+	w, body := ts.do(ts.TokenA, http.MethodPost, "/Users", oktaUser)
+
+	require.Equal(ts.T(), http.StatusConflict, w.Code, w.Body.String())
+	require.Equal(ts.T(), "uniqueness", body["scimType"])
+	reloaded := ts.reloadUser(password.ID)
+	require.False(ts.T(), reloaded.IsSSOUser)
+	require.Len(ts.T(), ts.identities(reloaded), 1)
+	require.Zero(ts.T(), ts.countRows(&models.SCIMUser{}, "user_id = ?", password.ID))
+}
+
 func (ts *SCIMUsersTestSuite) TestLinkAccountKeepsUserSSO() {
 	password, err := models.NewUser("", "alice@example.com", "", ts.API.config.JWT.Aud, nil)
 	require.NoError(ts.T(), err)

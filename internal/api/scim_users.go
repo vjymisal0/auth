@@ -327,7 +327,13 @@ func (s *scimUserRepository) linkAuthUser(tx *storage.Connection, row *models.SC
 	linked := decision.User
 	switch decision.Decision {
 	case models.AccountExists:
+		if err = scimCanLink(linked); err != nil {
+			return nil, false, err
+		}
 	case models.LinkAccount:
+		if err = scimCanLink(linked); err != nil {
+			return nil, false, err
+		}
 		if _, err = s.api.createNewIdentity(tx, linked, providerType, scimIdentityData(user)); err != nil {
 			return nil, false, err
 		}
@@ -346,6 +352,13 @@ func (s *scimUserRepository) linkAuthUser(tx *storage.Connection, row *models.SC
 	}
 
 	return linked, false, models.LinkSCIMUser(tx, row, linked.ID)
+}
+
+func scimCanLink(linked *models.User) error {
+	if !linked.IsSSOUser {
+		return scimerrors.ErrUniqueness("user is not an SSO user")
+	}
+	return nil
 }
 
 func (s *scimUserRepository) createAuthUser(tx *storage.Connection, providerType string, decision models.AccountLinkingResult, user *core.User) (*models.User, error) {
