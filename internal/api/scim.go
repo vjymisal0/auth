@@ -39,9 +39,9 @@ type scimLister[Row, Resource any] struct {
 	render  func(*storage.Connection, uuid.UUID, []Row, protocol.Projection) ([]Resource, error)
 }
 
-var errMissingSSOProvider = errors.New("scim: request has no SSO provider")
-
 var (
+	errMissingSSOProvider = errors.New("scim: request has no SSO provider")
+
 	scimUserSchemas = core.Schemas{
 		core.NewSchema(core.SchemaUser).With(core.UserAttributes()...),
 		core.NewSchema(core.SchemaEnterpriseUser).With(core.EnterpriseUserAttributes()...),

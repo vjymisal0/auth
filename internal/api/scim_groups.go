@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	"github.com/gofrs/uuid"
 	"github.com/supabase-community/scim-go/pkg/core"
@@ -217,7 +218,7 @@ func (s *scimGroupRepository) audit(tx *storage.Connection, r *http.Request, act
 }
 
 func (s *scimGroupRepository) auditMembers(tx *storage.Connection, r *http.Request, row *models.SCIMGroup, added, removed []uuid.UUID) error {
-	links, err := models.FindSCIMUserLinks(tx, append(append([]uuid.UUID{}, added...), removed...))
+	links, err := models.FindSCIMUserLinks(tx, slices.Concat(added, removed))
 	if err != nil {
 		return err
 	}

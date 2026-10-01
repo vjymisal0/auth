@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/badoux/checkmail"
 	"github.com/gofrs/uuid"
@@ -408,22 +407,22 @@ func (s *scimUserRepository) newUser(providerType string, decision models.Accoun
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
+	now := s.api.Now()
 	candidate.EmailConfirmedAt = &now
 	return candidate, nil
 }
 
 func (s *scimUserRepository) renameIdentity(tx *storage.Connection, providerID uuid.UUID, old *models.SCIMUser, user *core.User) error {
 	userID := *old.UserID
-	from := scimUserName(old.Resource)
-	if from == user.UserName {
-		return nil
+	from, err := scimUserName(old.Resource)
+	if err != nil || from == user.UserName {
+		return err
 	}
 	data := map[string]any{"sub": user.UserName}
 	if email := scimUserEmail(user); email != "" {
 		data["email"] = email
 	}
-	err := models.RenameSCIMIdentity(tx, models.SCIMIdentityRename{
+	err = models.RenameSCIMIdentity(tx, models.SCIMIdentityRename{
 		UserID:   userID,
 		Provider: scimProviderType(providerID),
 		From:     from,
@@ -536,12 +535,14 @@ func scimIdentityData(user *core.User) map[string]any {
 	}
 }
 
-func scimUserName(resource []byte) string {
+func scimUserName(resource []byte) (string, error) {
 	var r struct {
 		UserName string `json:"userName"`
 	}
-	_ = json.Unmarshal(resource, &r)
-	return r.UserName
+	if err := json.Unmarshal(resource, &r); err != nil {
+		return "", err
+	}
+	return r.UserName, nil
 }
 
 func scimUserTraits(row *models.SCIMUser) map[string]any {
