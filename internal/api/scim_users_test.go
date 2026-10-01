@@ -291,6 +291,12 @@ func (ts *SCIMTestSuite) scimAuditEntries() []models.AuditLogEntry {
 	return queryAuditEntries(ts.T(), ts.API.db, "payload->>'log_type' = ?", "scim")
 }
 
+func (ts *SCIMTestSuite) auditDuring(fn func()) []models.AuditLogEntry {
+	before := len(ts.scimAuditEntries())
+	fn()
+	return ts.scimAuditEntries()[before:]
+}
+
 func (ts *SCIMTestSuite) TestAuditLog() {
 	id := ts.create(ts.TokenA, oktaUser)
 

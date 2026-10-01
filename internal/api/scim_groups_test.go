@@ -157,14 +157,14 @@ func (ts *SCIMTestSuite) TestPatchReplaceMembers() {
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 	carol := ts.create(ts.TokenA, userWith("carol@example.com", "c-1"))
 	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "", alice, bob))
-	before := len(ts.scimAuditEntries())
-
-	w, got := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"replace","path":"members","value":[{"value":"`+bob+`"},{"value":"`+carol+`"}]}`))
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
-	require.ElementsMatch(ts.T(), []string{bob, carol}, memberValues(got))
+	entries := ts.auditDuring(func() {
+		w, got := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"replace","path":"members","value":[{"value":"`+bob+`"},{"value":"`+carol+`"}]}`))
+		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+		require.ElementsMatch(ts.T(), []string{bob, carol}, memberValues(got))
+	})
 
 	events := map[string][]string{}
-	for _, entry := range ts.scimAuditEntries()[before:] {
+	for _, entry := range entries {
 		scimUserID, _ := entry.Payload["traits"].(map[string]any)["scim_user_id"].(string)
 		events[entry.Payload["action"].(string)] = append(events[entry.Payload["action"].(string)], scimUserID)
 	}
@@ -184,19 +184,19 @@ func (ts *SCIMTestSuite) TestGroupMemberEventsCarryUserID() {
 		require.NotNil(ts.T(), row.UserID)
 		userIDs[id] = row.UserID.String()
 	}
-	before := len(ts.scimAuditEntries())
-
-	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "", alice, bob))
-	w, _ := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"remove","path":"members[value eq \"`+alice+`\"]"}`))
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
-	w, _ = ts.do(ts.TokenA, http.MethodDelete, "/Users/"+bob, "")
-	require.Equal(ts.T(), http.StatusNoContent, w.Code, w.Body.String())
+	entries := ts.auditDuring(func() {
+		id := ts.createGroup(ts.TokenA, groupWith("Engineering", "", alice, bob))
+		w, _ := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"remove","path":"members[value eq \"`+alice+`\"]"}`))
+		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+		w, _ = ts.do(ts.TokenA, http.MethodDelete, "/Users/"+bob, "")
+		require.Equal(ts.T(), http.StatusNoContent, w.Code, w.Body.String())
+	})
 
 	type event struct {
 		action, scimUserID, userID string
 	}
 	events := []event{}
-	for _, entry := range ts.scimAuditEntries()[before:] {
+	for _, entry := range entries {
 		traits := entry.Payload["traits"].(map[string]any)
 		if _, ok := traits["scim_group_id"]; !ok {
 			continue
@@ -349,24 +349,22 @@ func (ts *SCIMTestSuite) TestGroupsRemoveDeletedMembers() {
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 	eng := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", alice, bob))
 	ops := ts.createGroup(ts.TokenA, groupWith("Ops", "g-2", alice))
-	before := len(ts.scimAuditEntries())
+	entries := ts.auditDuring(func() {
+		w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+alice, "")
+		require.Equal(ts.T(), http.StatusNoContent, w.Code)
 
-	w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+alice, "")
-	require.Equal(ts.T(), http.StatusNoContent, w.Code)
+		w, got := ts.do(ts.TokenA, http.MethodGet, "/Groups/"+eng, "")
+		require.Equal(ts.T(), http.StatusOK, w.Code)
+		require.Equal(ts.T(), []string{bob}, memberValues(got))
+		w, got = ts.do(ts.TokenA, http.MethodGet, "/Groups/"+ops, "")
+		require.Equal(ts.T(), http.StatusOK, w.Code)
+		require.Empty(ts.T(), memberValues(got))
 
-	w, got := ts.do(ts.TokenA, http.MethodGet, "/Groups/"+eng, "")
-	require.Equal(ts.T(), http.StatusOK, w.Code)
-	require.Equal(ts.T(), []string{bob}, memberValues(got))
-	w, got = ts.do(ts.TokenA, http.MethodGet, "/Groups/"+ops, "")
-	require.Equal(ts.T(), http.StatusOK, w.Code)
-	require.Empty(ts.T(), memberValues(got))
-
-	count, err := ts.API.db.Q().Where("scim_user_id = ?", alice).Count(&models.SCIMGroupMember{})
-	require.NoError(ts.T(), err)
-	require.Zero(ts.T(), count)
+		require.Zero(ts.T(), ts.countRows(&models.SCIMGroupMember{}, "scim_user_id = ?", alice))
+	})
 
 	removed := []string{}
-	for _, entry := range ts.scimAuditEntries()[before:] {
+	for _, entry := range entries {
 		if entry.Payload["action"] != string(models.SCIMGroupMemberRemovedAction) {
 			continue
 		}
@@ -422,21 +420,21 @@ func (ts *SCIMTestSuite) TestGroupsKeepDeactivatedMembers() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
 	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", alice))
-	before := len(ts.scimAuditEntries())
+	entries := ts.auditDuring(func() {
+		w, _ := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+alice, patchOp(`{"op":"replace","path":"active","value":false}`))
+		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 
-	w, _ := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+alice, patchOp(`{"op":"replace","path":"active","value":false}`))
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+		w, got := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"add","path":"members","value":[{"value":"`+bob+`"}]}`))
+		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+		require.ElementsMatch(ts.T(), []string{alice, bob}, memberValues(got))
 
-	w, got := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"add","path":"members","value":[{"value":"`+bob+`"}]}`))
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
-	require.ElementsMatch(ts.T(), []string{alice, bob}, memberValues(got))
+		w, user := ts.do(ts.TokenA, http.MethodGet, "/Users/"+alice, "")
+		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+		require.Equal(ts.T(), false, user["active"])
+		require.Len(ts.T(), user["groups"], 1)
+	})
 
-	w, user := ts.do(ts.TokenA, http.MethodGet, "/Users/"+alice, "")
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
-	require.Equal(ts.T(), false, user["active"])
-	require.Len(ts.T(), user["groups"], 1)
-
-	for _, entry := range ts.scimAuditEntries()[before:] {
+	for _, entry := range entries {
 		require.NotEqual(ts.T(), string(models.SCIMGroupMemberRemovedAction), entry.Payload["action"])
 	}
 }
@@ -484,23 +482,24 @@ func (ts *SCIMTestSuite) TestGroupsUnknownID() {
 func (ts *SCIMTestSuite) TestGroupsAuditLog() {
 	alice := ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 	bob := ts.create(ts.TokenA, userWith("bob@example.com", "b-1"))
-	before := len(ts.scimAuditEntries())
+	var id string
+	entries := ts.auditDuring(func() {
+		id = ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", alice))
 
-	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "g-1", alice))
+		w, _ := ts.do(ts.TokenA, http.MethodPost, "/Groups", groupWith("Engineering", "g-1"))
+		require.Equal(ts.T(), http.StatusConflict, w.Code, w.Body.String())
+		w, _ = ts.do(ts.TokenA, http.MethodPost, "/Groups", groupWith("Invalid", "g-2", uuid.Must(uuid.NewV4()).String()))
+		require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
 
-	w, _ := ts.do(ts.TokenA, http.MethodPost, "/Groups", groupWith("Engineering", "g-1"))
-	require.Equal(ts.T(), http.StatusConflict, w.Code, w.Body.String())
-	w, _ = ts.do(ts.TokenA, http.MethodPost, "/Groups", groupWith("Invalid", "g-2", uuid.Must(uuid.NewV4()).String()))
-	require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
+		w, _ = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"add","path":"members","value":[{"value":"`+bob+`"}]}`, `{"op":"remove","path":"members[value eq \"`+alice+`\"]"}`, `{"op":"replace","path":"displayName","value":"Platform"}`))
+		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 
-	w, _ = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"add","path":"members","value":[{"value":"`+bob+`"}]}`, `{"op":"remove","path":"members[value eq \"`+alice+`\"]"}`, `{"op":"replace","path":"displayName","value":"Platform"}`))
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+		w, _ = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"replace","path":"displayName","value":"Rejected"}`, `{"op":"add","path":"members","value":[{"value":"`+uuid.Must(uuid.NewV4()).String()+`"}]}`))
+		require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
 
-	w, _ = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"replace","path":"displayName","value":"Rejected"}`, `{"op":"add","path":"members","value":[{"value":"`+uuid.Must(uuid.NewV4()).String()+`"}]}`))
-	require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
-
-	w, _ = ts.do(ts.TokenA, http.MethodDelete, "/Groups/"+id, "")
-	require.Equal(ts.T(), http.StatusNoContent, w.Code, w.Body.String())
+		w, _ = ts.do(ts.TokenA, http.MethodDelete, "/Groups/"+id, "")
+		require.Equal(ts.T(), http.StatusNoContent, w.Code, w.Body.String())
+	})
 
 	tokens, err := models.FindSCIMTokensBySSOProvider(ts.API.db, ts.A.ID)
 	require.NoError(ts.T(), err)
@@ -509,7 +508,7 @@ func (ts *SCIMTestSuite) TestGroupsAuditLog() {
 		action, displayName, scimUserID string
 	}
 	events := []event{}
-	for _, entry := range ts.scimAuditEntries()[before:] {
+	for _, entry := range entries {
 		require.Equal(ts.T(), uuid.Nil.String(), entry.Payload["actor_id"])
 		require.Equal(ts.T(), "scim:"+tokens[0].Prefix, entry.Payload["actor_username"])
 		traits := entry.Payload["traits"].(map[string]any)
@@ -551,7 +550,6 @@ func (ts *SCIMTestSuite) TestGroupsPushReplay() {
 		"deactivate bjensen":                  {"Group A", []string{bjensen}, false},
 		"reactivate bjensen and reassign app": {"Group A", []string{bjensen}, true},
 	}
-	before := len(ts.scimAuditEntries())
 	last := map[string]struct {
 		body    string
 		version any
@@ -566,21 +564,23 @@ func (ts *SCIMTestSuite) TestGroupsPushReplay() {
 			version any
 		}{string(request.Body), version}
 	}
-	played := ts.replay("okta_group_push.json", rfcGroup, []string{rfcBjensen, bjensen, rfcJsmith, jsmith}, onRequest, func(step, group string) {
-		want, ok := expected[step]
-		require.True(ts.T(), ok, step)
-		ts.requireGroup(step, group, want.displayName, want.members)
-		w, user := ts.do(ts.TokenA, http.MethodGet, "/Users/"+bjensen, "")
-		require.Equal(ts.T(), http.StatusOK, w.Code, step)
-		require.Equal(ts.T(), want.bjensenActive, user["active"], step)
+	entries := ts.auditDuring(func() {
+		played := ts.replay("okta_group_push.json", rfcGroup, []string{rfcBjensen, bjensen, rfcJsmith, jsmith}, onRequest, func(step, group string) {
+			want, ok := expected[step]
+			require.True(ts.T(), ok, step)
+			ts.requireGroup(step, group, want.displayName, want.members)
+			w, user := ts.do(ts.TokenA, http.MethodGet, "/Users/"+bjensen, "")
+			require.Equal(ts.T(), http.StatusOK, w.Code, step)
+			require.Equal(ts.T(), want.bjensenActive, user["active"], step)
+		})
+		require.Equal(ts.T(), len(expected), played)
 	})
-	require.Equal(ts.T(), len(expected), played)
 
 	type event struct {
 		action, subject string
 	}
 	events := []event{}
-	for _, entry := range ts.scimAuditEntries()[before:] {
+	for _, entry := range entries {
 		traits := entry.Payload["traits"].(map[string]any)
 		subject, _ := traits["scim_user_id"].(string)
 		if name, ok := traits["display_name"].(string); ok {

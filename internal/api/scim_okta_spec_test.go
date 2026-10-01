@@ -172,38 +172,37 @@ func (ts *SCIMTestSuite) TestOktaUserLifecycleReplay() {
 		"unassign":                  {"Jensen", false, -1},
 		"reassign (PUT sent twice)": {"Jensen", true, 1},
 	}
-	before := len(ts.scimAuditEntries())
 
 	id, version := "", ""
-	played := ts.replay("okta_user_lifecycle.json", rfcBjensen, nil, func(step string, request replayRequest, got map[string]any, created string) {
-		if strings.Contains(request.Path, "filter=") {
-			want := expected[step]
-			require.EqualValues(ts.T(), want.found, got["totalResults"], step)
-			if want.found > 0 {
-				require.Equal(ts.T(), created, got["Resources"].([]any)[0].(map[string]any)["id"], step)
+	entries := ts.auditDuring(func() {
+		played := ts.replay("okta_user_lifecycle.json", rfcBjensen, nil, func(step string, request replayRequest, got map[string]any, created string) {
+			if strings.Contains(request.Path, "filter=") {
+				want := expected[step]
+				require.EqualValues(ts.T(), want.found, got["totalResults"], step)
+				if want.found > 0 {
+					require.Equal(ts.T(), created, got["Resources"].([]any)[0].(map[string]any)["id"], step)
+				}
 			}
-		}
-		if request.Method == http.MethodPost {
-			require.Contains(ts.T(), string(request.Body), password)
-			require.NotContains(ts.T(), got, "password")
-		}
-	}, func(step, created string) {
-		want, ok := expected[step]
-		require.True(ts.T(), ok, step)
-		id = created
-		status, got := ts.okta(http.MethodGet, "/Users/"+id, "")
-		require.Equal(ts.T(), http.StatusOK, status, step)
-		require.Equal(ts.T(), want.familyName, got["name"].(map[string]any)["familyName"], step)
-		require.Equal(ts.T(), want.active, got["active"], step)
-		current := got["meta"].(map[string]any)["version"].(string)
-		require.NotEqual(ts.T(), version, current, step)
-		version = current
+			if request.Method == http.MethodPost {
+				require.Contains(ts.T(), string(request.Body), password)
+				require.NotContains(ts.T(), got, "password")
+			}
+		}, func(step, created string) {
+			want, ok := expected[step]
+			require.True(ts.T(), ok, step)
+			id = created
+			status, got := ts.okta(http.MethodGet, "/Users/"+id, "")
+			require.Equal(ts.T(), http.StatusOK, status, step)
+			require.Equal(ts.T(), want.familyName, got["name"].(map[string]any)["familyName"], step)
+			require.Equal(ts.T(), want.active, got["active"], step)
+			current := got["meta"].(map[string]any)["version"].(string)
+			require.NotEqual(ts.T(), version, current, step)
+			version = current
 
-		count, err := ts.API.db.Q().Where("sso_provider_id = ?", ts.A.ID).Count(&models.SCIMUser{})
-		require.NoError(ts.T(), err)
-		require.Equal(ts.T(), 1, count, step)
+			require.Equal(ts.T(), 1, ts.countRows(&models.SCIMUser{}, "sso_provider_id = ?", ts.A.ID), step)
+		})
+		require.Equal(ts.T(), len(expected), played)
 	})
-	require.Equal(ts.T(), len(expected), played)
 
 	var stored models.SCIMUser
 	require.NoError(ts.T(), ts.API.db.Q().Where("id = ?", id).First(&stored))
@@ -213,7 +212,7 @@ func (ts *SCIMTestSuite) TestOktaUserLifecycleReplay() {
 	require.False(ts.T(), user.HasPassword())
 
 	actions := []string{}
-	for _, entry := range ts.scimAuditEntries()[before:] {
+	for _, entry := range entries {
 		payload, err := json.Marshal(entry.Payload)
 		require.NoError(ts.T(), err)
 		require.NotContains(ts.T(), string(payload), password)

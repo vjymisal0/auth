@@ -129,19 +129,13 @@ func (ts *SCIMTestSuite) TestRevokedAndExpiredTokensRefusedEverywhere() {
 	require.True(ts.T(), row.Active)
 	require.Nil(ts.T(), row.DeletedAt)
 	require.Contains(ts.T(), string(row.Resource), `"a-1"`)
-	users, err := ts.API.db.Q().Where("sso_provider_id = ?", ts.A.ID).Count(&models.SCIMUser{})
-	require.NoError(ts.T(), err)
-	require.Equal(ts.T(), 1, users)
+	require.Equal(ts.T(), 1, ts.countRows(&models.SCIMUser{}, "sso_provider_id = ?", ts.A.ID))
 
 	var stored models.SCIMGroup
 	require.NoError(ts.T(), ts.API.db.Q().Where("id = ?", group).First(&stored))
 	require.Contains(ts.T(), string(stored.Resource), "Engineering")
-	groups, err := ts.API.db.Q().Where("sso_provider_id = ?", ts.A.ID).Count(&models.SCIMGroup{})
-	require.NoError(ts.T(), err)
-	require.Equal(ts.T(), 1, groups)
-	members, err := ts.API.db.Q().Where("group_id = ?", group).Count(&models.SCIMGroupMember{})
-	require.NoError(ts.T(), err)
-	require.Equal(ts.T(), 1, members)
+	require.Equal(ts.T(), 1, ts.countRows(&models.SCIMGroup{}, "sso_provider_id = ?", ts.A.ID))
+	require.Equal(ts.T(), 1, ts.countRows(&models.SCIMGroupMember{}, "group_id = ?", group))
 
 	w, _ := ts.do(ts.TokenB, http.MethodGet, "/Users", "")
 	require.Equal(ts.T(), http.StatusOK, w.Code)
