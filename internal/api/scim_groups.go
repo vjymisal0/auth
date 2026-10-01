@@ -213,9 +213,14 @@ func (s *scimGroupRepository) audit(tx *storage.Connection, r *http.Request, act
 	if err := json.Unmarshal(row.Resource, &resource); err != nil {
 		return err
 	}
-	return s.api.auditSCIM(tx, r, scimActor(r), action, row.SSOProviderID, map[string]any{
-		"scim_group_id": row.ID,
-		"display_name":  resource.DisplayName,
+	return s.api.auditSCIM(tx, r, scimAuditEvent{
+		actor:      scimActor(r),
+		action:     action,
+		providerID: row.SSOProviderID,
+		traits: map[string]any{
+			"scim_group_id": row.ID,
+			"display_name":  resource.DisplayName,
+		},
 	})
 }
 
@@ -236,7 +241,12 @@ func (s *scimGroupRepository) auditMembers(tx *storage.Connection, r *http.Reque
 			if linked, ok := links[id]; ok {
 				userID = &linked
 			}
-			if err := s.api.auditSCIM(tx, r, scimActor(r), change.action, row.SSOProviderID, scimMemberTraits(row.ID, id, userID)); err != nil {
+			if err := s.api.auditSCIM(tx, r, scimAuditEvent{
+				actor:      scimActor(r),
+				action:     change.action,
+				providerID: row.SSOProviderID,
+				traits:     scimMemberTraits(row.ID, id, userID),
+			}); err != nil {
 				return err
 			}
 		}

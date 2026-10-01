@@ -17,7 +17,12 @@ func (a *API) deleteSCIMUsers(tx *storage.Connection, r *http.Request, actor *mo
 		if err := a.removeSCIMUserFromGroups(tx, r, actor, &rows[i]); err != nil {
 			return err
 		}
-		if err := a.auditSCIM(tx, r, actor, models.SCIMUserDeletedAction, rows[i].SSOProviderID, scimUserTraits(&rows[i])); err != nil {
+		if err := a.auditSCIM(tx, r, scimAuditEvent{
+			actor:      actor,
+			action:     models.SCIMUserDeletedAction,
+			providerID: rows[i].SSOProviderID,
+			traits:     scimUserTraits(&rows[i]),
+		}); err != nil {
 			return err
 		}
 	}
@@ -30,7 +35,12 @@ func (a *API) removeSCIMUserFromGroups(tx *storage.Connection, r *http.Request, 
 		return err
 	}
 	for _, groupID := range groupIDs {
-		if err := a.auditSCIM(tx, r, actor, models.SCIMGroupMemberRemovedAction, row.SSOProviderID, scimMemberTraits(groupID, row.ID, row.UserID)); err != nil {
+		if err := a.auditSCIM(tx, r, scimAuditEvent{
+			actor:      actor,
+			action:     models.SCIMGroupMemberRemovedAction,
+			providerID: row.SSOProviderID,
+			traits:     scimMemberTraits(groupID, row.ID, row.UserID),
+		}); err != nil {
 			return err
 		}
 	}

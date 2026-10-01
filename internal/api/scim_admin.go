@@ -53,7 +53,12 @@ func (a *API) adminSCIMEnable(w http.ResponseWriter, r *http.Request) error {
 		if err != nil || !changed {
 			return err
 		}
-		return a.auditSCIM(tx, r, getAdminUser(ctx), models.SCIMEnabledAction, provider.ID, map[string]any{})
+		return a.auditSCIM(tx, r, scimAuditEvent{
+			actor:      getAdminUser(ctx),
+			action:     models.SCIMEnabledAction,
+			providerID: provider.ID,
+			traits:     map[string]any{},
+		})
 	}); err != nil {
 		return apierrors.NewInternalServerError("Error enabling SCIM").WithInternalError(err)
 	}
@@ -106,7 +111,12 @@ func (a *API) adminSCIMTokensCreate(w http.ResponseWriter, r *http.Request) erro
 		if token, plaintext, err = models.CreateSCIMToken(tx, provider, params.ExpiresAt); err != nil {
 			return err
 		}
-		return a.auditSCIM(tx, r, getAdminUser(ctx), models.SCIMTokenCreatedAction, provider.ID, map[string]any{scimTokenPrefixTrait: token.Prefix})
+		return a.auditSCIM(tx, r, scimAuditEvent{
+			actor:      getAdminUser(ctx),
+			action:     models.SCIMTokenCreatedAction,
+			providerID: provider.ID,
+			traits:     map[string]any{scimTokenPrefixTrait: token.Prefix},
+		})
 	}); err != nil {
 		if errors.Is(err, models.SCIMTokenExpiryError{}) {
 			return apierrors.NewBadRequestError(apierrors.ErrorCodeValidationFailed, "expires_at must be in the future")
@@ -180,7 +190,12 @@ func (a *API) revokeSCIMToken(tx *storage.Connection, r *http.Request, providerI
 	if err := token.Revoke(tx); err != nil {
 		return nil, err
 	}
-	return token, a.auditSCIM(tx, r, getAdminUser(r.Context()), models.SCIMTokenRevokedAction, providerID, map[string]any{scimTokenPrefixTrait: token.Prefix})
+	return token, a.auditSCIM(tx, r, scimAuditEvent{
+		actor:      getAdminUser(r.Context()),
+		action:     models.SCIMTokenRevokedAction,
+		providerID: providerID,
+		traits:     map[string]any{scimTokenPrefixTrait: token.Prefix},
+	})
 }
 
 func (a *API) sendSCIMStatus(w http.ResponseWriter, db *storage.Connection, provider *models.SSOProvider) error {
@@ -226,7 +241,12 @@ func (a *API) deprovisionSCIM(tx *storage.Connection, r *http.Request, provider 
 	if err != nil || banned == 0 {
 		return err
 	}
-	return a.auditSCIM(tx, r, actor, models.SCIMUsersBannedAction, provider.ID, map[string]any{"banned_user_count": banned})
+	return a.auditSCIM(tx, r, scimAuditEvent{
+		actor:      actor,
+		action:     models.SCIMUsersBannedAction,
+		providerID: provider.ID,
+		traits:     map[string]any{"banned_user_count": banned},
+	})
 }
 
 func (a *API) revokeSCIMTokens(tx *storage.Connection, r *http.Request, actor *models.User, providerID uuid.UUID) ([]string, error) {
@@ -243,7 +263,12 @@ func (a *API) revokeSCIMTokens(tx *storage.Connection, r *http.Request, actor *m
 		if err := tokens[i].Revoke(tx); err != nil {
 			return nil, err
 		}
-		if err := a.auditSCIM(tx, r, actor, models.SCIMTokenRevokedAction, providerID, map[string]any{scimTokenPrefixTrait: tokens[i].Prefix}); err != nil {
+		if err := a.auditSCIM(tx, r, scimAuditEvent{
+			actor:      actor,
+			action:     models.SCIMTokenRevokedAction,
+			providerID: providerID,
+			traits:     map[string]any{scimTokenPrefixTrait: tokens[i].Prefix},
+		}); err != nil {
 			return nil, err
 		}
 	}
@@ -251,5 +276,10 @@ func (a *API) revokeSCIMTokens(tx *storage.Connection, r *http.Request, actor *m
 }
 
 func (a *API) auditSCIMDisabled(tx *storage.Connection, r *http.Request, providerID uuid.UUID, prefixes []string) error {
-	return a.auditSCIM(tx, r, getAdminUser(r.Context()), models.SCIMDisabledAction, providerID, map[string]any{"token_prefixes": prefixes})
+	return a.auditSCIM(tx, r, scimAuditEvent{
+		actor:      getAdminUser(r.Context()),
+		action:     models.SCIMDisabledAction,
+		providerID: providerID,
+		traits:     map[string]any{"token_prefixes": prefixes},
+	})
 }

@@ -36,6 +36,13 @@ type scimLister[Row, Resource any] struct {
 	render  func(*storage.Connection, uuid.UUID, []Row, protocol.Projection) ([]Resource, error)
 }
 
+type scimAuditEvent struct {
+	actor      *models.User
+	action     models.AuditAction
+	providerID uuid.UUID
+	traits     map[string]any
+}
+
 var (
 	errMissingSSOProvider = errors.New("scim: request has no SSO provider")
 
@@ -119,10 +126,10 @@ func (a *API) withSCIMRequest(w http.ResponseWriter, req *http.Request) (context
 	return scimRequestKey.WithValue(req.Context(), req), nil
 }
 
-func (a *API) auditSCIM(tx *storage.Connection, r *http.Request, actor *models.User, action models.AuditAction, providerID uuid.UUID, traits map[string]any) error {
-	traits["sso_provider_id"] = providerID
-	traits["outcome"] = "success"
-	return models.NewAuditLogEntry(a.config.AuditLog, r, tx, actor, action, utilities.GetIPAddress(r), traits)
+func (a *API) auditSCIM(tx *storage.Connection, r *http.Request, event scimAuditEvent) error {
+	event.traits["sso_provider_id"] = event.providerID
+	event.traits["outcome"] = "success"
+	return models.NewAuditLogEntry(a.config.AuditLog, r, tx, event.actor, event.action, utilities.GetIPAddress(r), event.traits)
 }
 
 func scimBaseURL(config *conf.GlobalConfiguration) string {

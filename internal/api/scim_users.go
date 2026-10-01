@@ -342,7 +342,12 @@ func (s *scimUserRepository) changeEmail(tx *storage.Connection, change scimUser
 }
 
 func (s *scimUserRepository) audit(tx *storage.Connection, r *http.Request, action models.AuditAction, row *models.SCIMUser) error {
-	return s.api.auditSCIM(tx, r, scimActor(r), action, row.SSOProviderID, scimUserTraits(row))
+	return s.api.auditSCIM(tx, r, scimAuditEvent{
+		actor:      scimActor(r),
+		action:     action,
+		providerID: row.SSOProviderID,
+		traits:     scimUserTraits(row),
+	})
 }
 
 func scimUserResource(user *core.User) ([]byte, error) {
