@@ -8,7 +8,6 @@ import (
 
 	"github.com/badoux/checkmail"
 	"github.com/gofrs/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/supabase-community/scim-go/pkg/core"
 	"github.com/supabase-community/scim-go/pkg/protocol"
 	"github.com/supabase-community/scim-go/pkg/scimerrors"
@@ -16,6 +15,7 @@ import (
 	"github.com/supabase/auth/internal/api/provider"
 	"github.com/supabase/auth/internal/hooks/v0hooks"
 	"github.com/supabase/auth/internal/models"
+	"github.com/supabase/auth/internal/observability"
 	"github.com/supabase/auth/internal/storage"
 )
 
@@ -289,7 +289,7 @@ func (s *scimUserRepository) syncAuthUser(tx *storage.Connection, change scimUse
 	if err != nil {
 		return nil, err
 	}
-	if err := s.renameIdentity(tx, change.target.ProviderID, old, change.user); err != nil {
+	if err := s.renameIdentity(tx, change, old); err != nil {
 		return nil, err
 	}
 	if old.Active && !row.Active {
@@ -387,7 +387,7 @@ func (s *scimUserRepository) runAfterUserCreatedHook(r *http.Request, db *storag
 		return
 	}
 	if err := s.api.triggerAfterUserCreated(r, db, user); err != nil {
-		logrus.WithError(err).WithField("user_id", user.ID).Error("scim: after user created hook failed")
+		observability.GetLogEntry(r).Entry.WithError(err).WithField("user_id", user.ID).Error("scim: after user created hook failed")
 	}
 }
 
@@ -412,8 +412,8 @@ func (s *scimUserRepository) newUser(providerType string, decision models.Accoun
 	return candidate, nil
 }
 
-func (s *scimUserRepository) renameIdentity(tx *storage.Connection, providerID uuid.UUID, old *models.SCIMUser, user *core.User) error {
-	userID := *old.UserID
+func (s *scimUserRepository) renameIdentity(tx *storage.Connection, change scimUserChange, old *models.SCIMUser) error {
+	providerID, user, userID := change.target.ProviderID, change.user, *old.UserID
 	from, err := scimUserName(old.Resource)
 	if err != nil || from == user.UserName {
 		return err
@@ -430,7 +430,7 @@ func (s *scimUserRepository) renameIdentity(tx *storage.Connection, providerID u
 		Data:     data,
 	})
 	if errors.Is(err, models.SCIMIdentityNotFoundError{}) {
-		logrus.WithField("user_id", userID).WithField("sso_provider_id", providerID).Warn("scim: SCIM identity not found, rename skipped")
+		observability.GetLogEntry(change.r).Entry.WithField("user_id", userID).WithField("sso_provider_id", providerID).Warn("scim: SCIM identity not found, rename skipped")
 		return nil
 	}
 	return err
