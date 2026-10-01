@@ -76,7 +76,7 @@ func (a *API) adminSCIMDisable(w http.ResponseWriter, r *http.Request) error {
 		if err != nil || !changed {
 			return err
 		}
-		return a.auditSCIM(tx, r, actor, models.SCIMDisabledAction, provider.ID, map[string]any{"token_prefixes": prefixes})
+		return a.auditSCIMDisabled(tx, r, provider.ID, prefixes)
 	}); err != nil {
 		return apierrors.NewInternalServerError("Error disabling SCIM").WithInternalError(err)
 	}
@@ -218,7 +218,7 @@ func (a *API) deprovisionSCIM(tx *storage.Connection, r *http.Request, provider 
 		return err
 	}
 	if enabled && a.config.SSO.SCIM.Enabled {
-		if err := a.auditSCIM(tx, r, actor, models.SCIMDisabledAction, provider.ID, map[string]any{"token_prefixes": prefixes}); err != nil {
+		if err := a.auditSCIMDisabled(tx, r, provider.ID, prefixes); err != nil {
 			return err
 		}
 	}
@@ -248,4 +248,8 @@ func (a *API) revokeSCIMTokens(tx *storage.Connection, r *http.Request, actor *m
 		}
 	}
 	return prefixes, nil
+}
+
+func (a *API) auditSCIMDisabled(tx *storage.Connection, r *http.Request, providerID uuid.UUID, prefixes []string) error {
+	return a.auditSCIM(tx, r, getAdminUser(r.Context()), models.SCIMDisabledAction, providerID, map[string]any{"token_prefixes": prefixes})
 }
