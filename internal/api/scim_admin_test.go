@@ -41,9 +41,7 @@ func (ts *SCIMTokensTestSuite) SetupTest() {
 	require.NoError(ts.T(), models.TruncateAll(ts.API.db))
 	ts.API.config.SSO.SCIM.Enabled = true
 
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, &AccessTokenClaims{Role: "supabase_admin"}).SignedString([]byte(ts.Config.JWT.Secret))
-	require.NoError(ts.T(), err)
-	ts.AdminJWT = token
+	ts.AdminJWT = adminJWT(ts.T(), ts.Config.JWT.Secret)
 
 	ts.Provider = ts.createProvider()
 }
@@ -449,8 +447,7 @@ func (ts *SCIMTokensTestSuite) TestConcurrentEnableAndDisable() {
 }
 
 func (ts *SCIMTokensTestSuite) scimActions(provider *models.SSOProvider) []string {
-	entries := []models.AuditLogEntry{}
-	require.NoError(ts.T(), ts.API.db.Q().Where("payload->>'log_type' = ? AND payload->'traits'->>'sso_provider_id' = ?", "scim", provider.ID.String()).Order("created_at asc").All(&entries))
+	entries := queryAuditEntries(ts.T(), ts.API.db, "payload->>'log_type' = ? AND payload->'traits'->>'sso_provider_id' = ?", "scim", provider.ID.String())
 	actions := []string{}
 	for _, entry := range entries {
 		actions = append(actions, entry.Payload["action"].(string))
@@ -508,8 +505,7 @@ func (ts *SCIMTokensTestSuite) TestStatusForDisabledProvider() {
 type scimTokenEvent struct{ action, prefix string }
 
 func (ts *SCIMTokensTestSuite) tokenEvents() []scimTokenEvent {
-	entries := []models.AuditLogEntry{}
-	require.NoError(ts.T(), ts.API.db.Q().Where("payload->>'log_type' = ?", "scim").Order("created_at asc").All(&entries))
+	entries := queryAuditEntries(ts.T(), ts.API.db, "payload->>'log_type' = ?", "scim")
 
 	events := []scimTokenEvent{}
 	for _, entry := range entries {

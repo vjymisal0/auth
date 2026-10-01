@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 	"github.com/supabase/auth/internal/api/provider"
 	"github.com/supabase/auth/internal/models"
@@ -18,8 +17,7 @@ func scimUser(name string) string {
 }
 
 func (ts *SCIMUsersTestSuite) deleteProvider(p *models.SSOProvider) {
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, &AccessTokenClaims{Role: "supabase_admin"}).SignedString([]byte(ts.API.config.JWT.Secret))
-	require.NoError(ts.T(), err)
+	token := adminJWT(ts.T(), ts.API.config.JWT.Secret)
 	r := httptest.NewRequest(http.MethodDelete, "/admin/sso/providers/"+p.ID.String(), nil)
 	r.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
@@ -40,9 +38,7 @@ func (ts *SCIMUsersTestSuite) countRows(model any, where string, args ...any) in
 }
 
 func (ts *SCIMUsersTestSuite) auditActions(action models.AuditAction) []models.AuditLogEntry {
-	entries := []models.AuditLogEntry{}
-	require.NoError(ts.T(), ts.API.db.Q().Where("payload->>'action' = ?", string(action)).All(&entries))
-	return entries
+	return queryAuditEntries(ts.T(), ts.API.db, "payload->>'action' = ?", string(action))
 }
 
 func (ts *SCIMUsersTestSuite) TestProviderDeleteBansDeprovisionedUsers() {

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/supabase-community/scim-go/pkg/core"
@@ -99,6 +100,18 @@ func createSSOProviderWithSCIMToken(t require.TestingT, db *storage.Connection) 
 	_, token, err := models.CreateSCIMToken(db, provider, nil)
 	require.NoError(t, err)
 	return provider, token
+}
+
+func adminJWT(t require.TestingT, secret string) string {
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, &AccessTokenClaims{Role: "supabase_admin"}).SignedString([]byte(secret))
+	require.NoError(t, err)
+	return token
+}
+
+func queryAuditEntries(t require.TestingT, db *storage.Connection, where string, args ...any) []models.AuditLogEntry {
+	entries := []models.AuditLogEntry{}
+	require.NoError(t, db.Q().Where(where, args...).Order("created_at asc").All(&entries))
+	return entries
 }
 
 func (ts *SCIMUsersTestSuite) do(token, method, path, body string) (*httptest.ResponseRecorder, map[string]any) {
@@ -378,9 +391,7 @@ func (ts *SCIMUsersTestSuite) whileLocked(lock, finish func(tx *storage.Connecti
 }
 
 func (ts *SCIMUsersTestSuite) scimAuditEntries() []models.AuditLogEntry {
-	entries := []models.AuditLogEntry{}
-	require.NoError(ts.T(), ts.API.db.Q().Where("payload->>'log_type' = ?", "scim").Order("created_at asc").All(&entries))
-	return entries
+	return queryAuditEntries(ts.T(), ts.API.db, "payload->>'log_type' = ?", "scim")
 }
 
 func (ts *SCIMUsersTestSuite) TestAuditLog() {
