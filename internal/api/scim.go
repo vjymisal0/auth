@@ -299,7 +299,11 @@ func errSCIMMemberNotFound() error {
 }
 
 func errSCIMEmailRequired() error {
-	return scimerrors.ErrInvalidValue(`"emails" is required`)
+	return scimerrors.ErrInvalidValue(`"emails" or an email address "userName" is required`)
+}
+
+func errSCIMEmailInvalid() error {
+	return scimerrors.ErrInvalidValue(`"emails" value must be an email address`)
 }
 
 func errSCIMTooManyRequests() error {

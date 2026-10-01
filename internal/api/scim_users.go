@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/badoux/checkmail"
 	"github.com/gofrs/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/supabase-community/scim-go/pkg/core"
@@ -66,7 +67,10 @@ func (s *scimUsers) Create(ctx context.Context, user *core.User) (*core.User, er
 	if err != nil {
 		return nil, err
 	}
-	if scimPrimaryEmail(user.Emails) == "" {
+	if err := scimValidateEmails(user); err != nil {
+		return nil, err
+	}
+	if scimEmail(user) == "" {
 		return nil, errSCIMEmailRequired()
 	}
 	r, err := scimRequest(ctx)
@@ -81,7 +85,7 @@ func (s *scimUsers) Create(ctx context.Context, user *core.User) (*core.User, er
 	var row *models.SCIMUser
 	var created *models.User
 	err = db.Transaction(func(tx *storage.Connection) error {
-		if terr := models.LockAccountLinking(tx, "sso:"+providerID.String(), scimPrimaryEmail(user.Emails)); terr != nil {
+		if terr := models.LockAccountLinking(tx, "sso:"+providerID.String(), scimEmail(user)); terr != nil {
 			return terr
 		}
 		var terr error
@@ -109,7 +113,10 @@ func (s *scimUsers) Replace(ctx context.Context, user *core.User) (*core.User, e
 	if err != nil {
 		return nil, err
 	}
-	email := scimPrimaryEmail(user.Emails)
+	if err := scimValidateEmails(user); err != nil {
+		return nil, err
+	}
+	email := scimEmail(user)
 	r, err := scimRequest(ctx)
 	if err != nil {
 		return nil, err
@@ -254,7 +261,7 @@ func (s *scimUsers) renderOne(tx *storage.Connection, providerID uuid.UUID, row 
 
 func (s *scimUsers) sync(tx *storage.Connection, providerID uuid.UUID, old, row *models.SCIMUser, user *core.User) (*models.User, error) {
 	if old.UserID == nil {
-		if scimPrimaryEmail(user.Emails) == "" {
+		if scimEmail(user) == "" {
 			return nil, errSCIMEmailRequired()
 		}
 		return s.linkNew(tx, row, user)
@@ -266,7 +273,7 @@ func (s *scimUsers) sync(tx *storage.Connection, providerID uuid.UUID, old, row 
 	}
 	if from := scimUserName(old.Resource); from != user.UserName {
 		data := map[string]any{"sub": user.UserName}
-		if email := scimPrimaryEmail(user.Emails); email != "" {
+		if email := scimEmail(user); email != "" {
 			data["email"] = email
 		}
 		err := models.RenameSCIMIdentity(tx, linked.ID, "sso:"+providerID.String(), from, user.UserName, data)
@@ -360,7 +367,7 @@ func (s *scimUsers) afterCreate(r *http.Request, db *storage.Connection, user *m
 }
 
 func (s *scimUsers) decide(conn *storage.Connection, providerType string, user *core.User) (models.AccountLinkingResult, error) {
-	emails := []provider.Email{{Email: scimPrimaryEmail(user.Emails), Verified: true, Primary: true}}
+	emails := []provider.Email{{Email: scimEmail(user), Verified: true, Primary: true}}
 	return models.DetermineAccountLinking(conn, s.api.config, emails, s.api.config.JWT.Aud, providerType, user.UserName)
 }
 
@@ -417,6 +424,27 @@ func scimUserResource(user *core.User) ([]byte, error) {
 	return scimEncode(user, "id", "meta", "password", "groups")
 }
 
+func scimEmail(user *core.User) string {
+	if email := scimPrimaryEmail(user.Emails); email != "" {
+		return email
+	}
+	if isEmailAddress(user.UserName) {
+		return user.UserName
+	}
+	return ""
+}
+
+func scimValidateEmails(user *core.User) error {
+	if email := scimPrimaryEmail(user.Emails); email != "" && !isEmailAddress(email) {
+		return errSCIMEmailInvalid()
+	}
+	return nil
+}
+
+func isEmailAddress(value string) bool {
+	return len(value) <= 255 && checkmail.ValidateFormat(value) == nil
+}
+
 func scimPrimaryEmail(emails []core.Email) string {
 	for _, email := range emails {
 		if email.Primary != nil && *email.Primary {
@@ -432,7 +460,7 @@ func scimPrimaryEmail(emails []core.Email) string {
 func scimIdentityData(user *core.User) map[string]any {
 	return map[string]any{
 		"sub":            user.UserName,
-		"email":          scimPrimaryEmail(user.Emails),
+		"email":          scimEmail(user),
 		"email_verified": true,
 	}
 }

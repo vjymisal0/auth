@@ -223,6 +223,36 @@ func (ts *SCIMUsersTestSuite) TestCreateRequiresEmail() {
 	require.Equal(ts.T(), "invalidValue", body["scimType"])
 }
 
+func (ts *SCIMUsersTestSuite) TestCreateFallsBackToEmailUserName() {
+	id := ts.create(ts.TokenA, `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"Alice@Example.com"}`)
+	user := ts.linkedUser(id)
+	require.Equal(ts.T(), "alice@example.com", user.GetEmail())
+
+	signedIn, err := ts.samlLogin(ts.A, "saml-name-id", "alice@example.com")
+	require.NoError(ts.T(), err)
+	require.Equal(ts.T(), user.ID, signedIn.ID)
+}
+
+func (ts *SCIMUsersTestSuite) TestRejectsInvalidEmailsValue() {
+	invalid := strings.Replace(oktaUser, `"value": "alice@example.com"`, `"value": "not-an-email"`, 1)
+	w, body := ts.do(ts.TokenA, http.MethodPost, "/Users", invalid)
+	require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
+	require.Equal(ts.T(), "invalidValue", body["scimType"])
+
+	id := ts.create(ts.TokenA, oktaUser)
+	w, body = ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, invalid)
+	require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
+	require.Equal(ts.T(), "invalidValue", body["scimType"])
+
+	w, body = ts.do(ts.TokenA, http.MethodPatch, "/Users/"+id, `{
+		"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+		"Operations": [{"op": "replace", "path": "emails", "value": [{"value": "not-an-email", "primary": true}]}]
+	}`)
+	require.Equal(ts.T(), http.StatusBadRequest, w.Code, w.Body.String())
+	require.Equal(ts.T(), "invalidValue", body["scimType"])
+	require.Equal(ts.T(), "alice@example.com", ts.linkedUser(id).GetEmail())
+}
+
 func (ts *SCIMUsersTestSuite) TestCreateKeepsAdminBan() {
 	existing := ts.ssoUser(ts.A, "Alice@Example.com", "alice@example.com")
 	require.NoError(ts.T(), existing.Ban(ts.API.db, time.Hour))
