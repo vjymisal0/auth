@@ -170,6 +170,13 @@ func LinkSCIMUser(tx *storage.Connection, user *SCIMUser, userID uuid.UUID) erro
 	if linked {
 		return SCIMUserLinkedError{}
 	}
+	deleted, err := tx.Q().Where("sso_provider_id = ? AND user_id = ? AND deleted_at IS NOT NULL", user.SSOProviderID, userID).Exists(&SCIMUser{})
+	if err != nil {
+		return errors.Wrap(err, "error finding deleted SCIM user")
+	}
+	if deleted {
+		return SCIMUserDeletedError{}
+	}
 
 	if err := tx.RawQuery(
 		fmt.Sprintf("UPDATE %q SET user_id = ? WHERE id = ?", scimUsersTable.name),
@@ -187,14 +194,6 @@ func IsSCIMManaged(tx *storage.Connection, providerID, userID uuid.UUID) (bool, 
 		return false, errors.Wrap(err, "error finding SCIM user")
 	}
 	return managed, nil
-}
-
-func IsSCIMDeleted(tx *storage.Connection, providerID, userID uuid.UUID) (bool, error) {
-	deleted, err := tx.Q().Where("sso_provider_id = ? AND user_id = ? AND deleted_at IS NOT NULL", providerID, userID).Exists(&SCIMUser{})
-	if err != nil {
-		return false, errors.Wrap(err, "error finding deleted SCIM user")
-	}
-	return deleted, nil
 }
 
 func IsSCIMDeprovisioned(tx *storage.Connection, providerID, userID uuid.UUID) (bool, error) {

@@ -260,6 +260,12 @@ func (e SCIMUserLinkedError) Error() string {
 	return "user is already linked to a SCIM user in this provider"
 }
 
+type SCIMUserDeletedError struct{}
+
+func (e SCIMUserDeletedError) Error() string {
+	return "user was deleted by this provider"
+}
+
 type SCIMGroupNotFoundError struct{}
 
 func (e SCIMGroupNotFoundError) Error() string {

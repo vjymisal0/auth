@@ -304,6 +304,8 @@ func scimError(err error) error {
 		return scimerrors.ErrUniqueness(`"userName" and "externalId" must be unique`)
 	case errors.Is(err, models.SCIMUserLinkedError{}):
 		return scimerrors.ErrUniqueness("user is already provisioned by this provider")
+	case errors.Is(err, models.SCIMUserDeletedError{}):
+		return scimerrors.ErrUniqueness("user was deleted by this provider")
 	}
 	return err
 }

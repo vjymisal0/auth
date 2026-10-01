@@ -327,11 +327,11 @@ func (s *scimUserRepository) linkAuthUser(tx *storage.Connection, row *models.SC
 	linked := decision.User
 	switch decision.Decision {
 	case models.AccountExists:
-		if err = scimCanLink(tx, row.SSOProviderID, linked); err != nil {
+		if err = scimCanLink(linked); err != nil {
 			return nil, false, err
 		}
 	case models.LinkAccount:
-		if err = scimCanLink(tx, row.SSOProviderID, linked); err != nil {
+		if err = scimCanLink(linked); err != nil {
 			return nil, false, err
 		}
 		if _, err = s.api.createNewIdentity(tx, linked, providerType, scimIdentityData(user)); err != nil {
@@ -354,16 +354,9 @@ func (s *scimUserRepository) linkAuthUser(tx *storage.Connection, row *models.SC
 	return linked, false, models.LinkSCIMUser(tx, row, linked.ID)
 }
 
-func scimCanLink(tx *storage.Connection, providerID uuid.UUID, linked *models.User) error {
+func scimCanLink(linked *models.User) error {
 	if !linked.IsSSOUser {
 		return scimerrors.ErrUniqueness("user is not an SSO user")
-	}
-	deleted, err := models.IsSCIMDeleted(tx, providerID, linked.ID)
-	if err != nil {
-		return err
-	}
-	if deleted {
-		return scimerrors.ErrUniqueness("user was deleted by this provider")
 	}
 	return nil
 }
