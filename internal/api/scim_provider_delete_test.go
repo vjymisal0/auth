@@ -17,11 +17,7 @@ func scimUser(name string) string {
 }
 
 func (ts *SCIMTestSuite) deleteProvider(p *models.SSOProvider) {
-	token := adminJWT(ts.T(), ts.API.config.JWT.Secret)
-	r := httptest.NewRequest(http.MethodDelete, "/admin/sso/providers/"+p.ID.String(), nil)
-	r.Header.Set("Authorization", "Bearer "+token)
-	w := httptest.NewRecorder()
-	ts.API.handler.ServeHTTP(w, r)
+	w := serveAdmin(ts.T(), ts.API, http.MethodDelete, "/admin/sso/providers/"+p.ID.String(), nil)
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 }
 

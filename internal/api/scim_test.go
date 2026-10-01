@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io/fs"
@@ -553,6 +554,19 @@ func adminJWT(t require.TestingT, secret string) string {
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, &AccessTokenClaims{Role: "supabase_admin"}).SignedString([]byte(secret))
 	require.NoError(t, err)
 	return token
+}
+
+func serveAdmin(t require.TestingT, api *API, method, path string, body any) *httptest.ResponseRecorder {
+	var buf bytes.Buffer
+	if body != nil {
+		require.NoError(t, json.NewEncoder(&buf).Encode(body))
+	}
+	r := httptest.NewRequest(method, path, &buf)
+	r.Header.Set("Authorization", "Bearer "+adminJWT(t, api.config.JWT.Secret))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	api.handler.ServeHTTP(w, r)
+	return w
 }
 
 func queryAuditEntries(t require.TestingT, db *storage.Connection, where string, args ...any) []models.AuditLogEntry {

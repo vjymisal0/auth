@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"maps"
@@ -55,16 +54,7 @@ func (ts *SCIMTokensTestSuite) tokensPath(provider *models.SSOProvider) string {
 }
 
 func (ts *SCIMTokensTestSuite) request(method, path string, body any) *httptest.ResponseRecorder {
-	var buf bytes.Buffer
-	if body != nil {
-		require.NoError(ts.T(), json.NewEncoder(&buf).Encode(body))
-	}
-	r := httptest.NewRequest(method, path, &buf)
-	r.Header.Set("Authorization", "Bearer "+ts.AdminJWT)
-	r.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	ts.API.handler.ServeHTTP(w, r)
-	return w
+	return serveAdmin(ts.T(), ts.API, method, path, body)
 }
 
 func (ts *SCIMTokensTestSuite) create(provider *models.SSOProvider, body any) AdminSCIMTokenCreateResponse {

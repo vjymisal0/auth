@@ -25,8 +25,8 @@ func TestSCIMRateLimit(t *testing.T) {
 	}
 	tokenA, tokenB := token(), token()
 
-	get := func(token, ip string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(http.MethodGet, "/scim/v2/Users", nil)
+	send := func(method, path, token, ip string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, nil)
 		if token != "" {
 			r.Header.Set("Authorization", "Bearer "+token)
 		}
@@ -34,6 +34,9 @@ func TestSCIMRateLimit(t *testing.T) {
 		w := httptest.NewRecorder()
 		api.handler.ServeHTTP(w, r)
 		return w
+	}
+	get := func(token, ip string) *httptest.ResponseRecorder {
+		return send(http.MethodGet, "/scim/v2/Users", token, ip)
 	}
 
 	limited := `{"schemas":["urn:ietf:params:scim:api:messages:2.0:Error"],"detail":"Request rate limit reached","status":"429"}`
@@ -74,19 +77,11 @@ func TestSCIMRateLimit(t *testing.T) {
 		{http.MethodDelete, "/scim/v2/Users", http.StatusUnauthorized},
 	} {
 		ip := fmt.Sprintf("203.0.113.%d", i+1)
-		send := func() *httptest.ResponseRecorder {
-			r := httptest.NewRequest(tc.method, tc.path, nil)
-			r.Header.Set("Authorization", "Bearer scim_invalid")
-			r.Header.Set(api.config.RateLimitHeader, ip)
-			w := httptest.NewRecorder()
-			api.handler.ServeHTTP(w, r)
-			return w
-		}
 		for range 30 {
-			w := send()
+			w := send(tc.method, tc.path, "scim_invalid", ip)
 			require.Equal(t, tc.status, w.Code, tc.method+" "+tc.path)
 		}
-		w := send()
+		w := send(tc.method, tc.path, "scim_invalid", ip)
 		require.Equal(t, http.StatusTooManyRequests, w.Code, tc.method+" "+tc.path)
 		require.JSONEq(t, limited, w.Body.String())
 	}

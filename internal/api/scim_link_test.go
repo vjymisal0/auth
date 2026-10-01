@@ -104,14 +104,8 @@ func (ts *SCIMTestSuite) passkeyRegistrationOptions(user *models.User) int {
 		ChallengeExpiryDuration: 5 * time.Minute,
 	}
 
-	session, err := models.NewSession(user.ID, nil)
-	require.NoError(ts.T(), err)
-	require.NoError(ts.T(), ts.API.db.Create(session))
-	token, _, err := ts.API.generateAccessToken(httptest.NewRequest(http.MethodPost, "/passkeys", nil), ts.API.db, user, &session.ID, models.PasswordGrant)
-	require.NoError(ts.T(), err)
-
 	r := httptest.NewRequest(http.MethodPost, "/passkeys/registration/options", nil)
-	r.Header.Set("Authorization", "Bearer "+token)
+	r.Header.Set("Authorization", "Bearer "+ts.accessToken(user))
 	w := httptest.NewRecorder()
 	ts.API.handler.ServeHTTP(w, r)
 	return w.Code
@@ -834,11 +828,7 @@ func (ts *SCIMTestSuite) TestCreateAfterAdminDeletesProviderDeletedUser() {
 		user := ts.linkedUser(id)
 		w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+id, "")
 		require.Equal(ts.T(), http.StatusNoContent, w.Code)
-		r := httptest.NewRequest(http.MethodDelete, "/admin/users/"+user.ID.String(), strings.NewReader(`{"should_soft_delete":`+strconv.FormatBool(soft)+`}`))
-		r.Header.Set("Authorization", "Bearer "+adminJWT(ts.T(), ts.API.config.JWT.Secret))
-		r.Header.Set("Content-Type", "application/json")
-		w = httptest.NewRecorder()
-		ts.API.handler.ServeHTTP(w, r)
+		w = serveAdmin(ts.T(), ts.API, http.MethodDelete, "/admin/users/"+user.ID.String(), map[string]any{"should_soft_delete": soft})
 		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 
 		created := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
@@ -862,12 +852,7 @@ func (ts *SCIMTestSuite) TestCreateConcurrentSameEmailLinksToOneUser() {
 		go func(i int) {
 			defer wg.Done()
 			<-start
-			r := httptest.NewRequest(http.MethodPost, "/scim/v2/Users", strings.NewReader(bodies[i]))
-			r.Header.Set("Authorization", "Bearer "+ts.TokenA)
-			r.Header.Set("Content-Type", protocol.MediaType)
-			w := httptest.NewRecorder()
-			ts.API.handler.ServeHTTP(w, r)
-			codes[i] = w.Code
+			codes[i] = ts.serve(protocol.MediaType, ts.TokenA, http.MethodPost, "/Users", bodies[i]).Code
 		}(i)
 	}
 	close(start)
@@ -964,14 +949,18 @@ func (ts *SCIMTestSuite) TestReplaceRejectsRenameToTakenIdentity() {
 	require.NoError(ts.T(), err)
 }
 
-func (ts *SCIMTestSuite) unlink(user *models.User, identity *models.Identity) *httptest.ResponseRecorder {
+func (ts *SCIMTestSuite) accessToken(user *models.User) string {
 	session, err := models.NewSession(user.ID, nil)
 	require.NoError(ts.T(), err)
 	require.NoError(ts.T(), ts.API.db.Create(session))
 	token, _, err := ts.API.generateAccessToken(httptest.NewRequest(http.MethodPost, "/token", nil), ts.API.db, user, &session.ID, models.PasswordGrant)
 	require.NoError(ts.T(), err)
+	return token
+}
+
+func (ts *SCIMTestSuite) unlink(user *models.User, identity *models.Identity) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(http.MethodDelete, "/user/identities/"+identity.ID.String(), nil)
-	r.Header.Set("Authorization", "Bearer "+token)
+	r.Header.Set("Authorization", "Bearer "+ts.accessToken(user))
 	w := httptest.NewRecorder()
 	ts.API.handler.ServeHTTP(w, r)
 	return w

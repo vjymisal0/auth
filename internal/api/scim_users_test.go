@@ -360,12 +360,7 @@ func (ts *SCIMTestSuite) TestConcurrentCreateWithinProvider() {
 	for range attempts {
 		wg.Go(func() {
 			<-start
-			r := httptest.NewRequest(http.MethodPost, "/scim/v2/Users", strings.NewReader(userWith("race@example.com", "")))
-			r.Header.Set("Authorization", "Bearer "+ts.TokenA)
-			r.Header.Set("Content-Type", protocol.MediaType)
-			w := httptest.NewRecorder()
-			ts.API.handler.ServeHTTP(w, r)
-			codes <- w.Code
+			codes <- ts.serve(protocol.MediaType, ts.TokenA, http.MethodPost, "/Users", userWith("race@example.com", "")).Code
 		})
 	}
 	close(start)
