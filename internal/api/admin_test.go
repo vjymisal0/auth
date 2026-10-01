@@ -864,28 +864,6 @@ func (ts *AdminTestSuite) TestAdminUserDelete() {
 	}
 }
 
-func (ts *AdminTestSuite) createLinkedSCIMUser(email string) (*models.SCIMUser, *models.User) {
-	provider := &models.SSOProvider{}
-	require.NoError(ts.T(), ts.API.db.Create(provider))
-
-	u, err := models.NewUser("", email, "", ts.Config.JWT.Aud, nil)
-	require.NoError(ts.T(), err)
-	u.IsSSOUser = true
-	require.NoError(ts.T(), ts.API.db.Create(u))
-
-	scimUser, err := models.CreateSCIMUser(ts.API.db, provider.ID, []byte(`{"userName":"`+email+`"}`))
-	require.NoError(ts.T(), err)
-	require.NoError(ts.T(), models.LinkSCIMUser(ts.API.db, scimUser, u.ID))
-
-	return scimUser, u
-}
-
-func (ts *AdminTestSuite) findSCIMUserByID(id uuid.UUID) *models.SCIMUser {
-	var row models.SCIMUser
-	require.NoError(ts.T(), ts.API.db.Q().Where("id = ?", id).First(&row))
-	return &row
-}
-
 func (ts *AdminTestSuite) TestAdminUserDeleteSoftDeletesSCIMUser() {
 	cases := []struct {
 		desc      string
@@ -1267,4 +1245,26 @@ func (ts *AdminTestSuite) TestAdminUserCreateValidationErrors() {
 		})
 
 	}
+}
+
+func (ts *AdminTestSuite) createLinkedSCIMUser(email string) (*models.SCIMUser, *models.User) {
+	provider := &models.SSOProvider{}
+	require.NoError(ts.T(), ts.API.db.Create(provider))
+
+	u, err := models.NewUser("", email, "", ts.Config.JWT.Aud, nil)
+	require.NoError(ts.T(), err)
+	u.IsSSOUser = true
+	require.NoError(ts.T(), ts.API.db.Create(u))
+
+	scimUser, err := models.CreateSCIMUser(ts.API.db, provider.ID, []byte(`{"userName":"`+email+`"}`))
+	require.NoError(ts.T(), err)
+	require.NoError(ts.T(), models.LinkSCIMUser(ts.API.db, scimUser, u.ID))
+
+	return scimUser, u
+}
+
+func (ts *AdminTestSuite) findSCIMUserByID(id uuid.UUID) *models.SCIMUser {
+	var row models.SCIMUser
+	require.NoError(ts.T(), ts.API.db.Q().Where("id = ?", id).First(&row))
+	return &row
 }

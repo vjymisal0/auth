@@ -45,35 +45,6 @@ func (ts *SCIMTokensTestSuite) SetupTest() {
 	ts.Provider = ts.createProvider()
 }
 
-func (ts *SCIMTokensTestSuite) createProvider() *models.SSOProvider {
-	return createSCIMEnabledProvider(ts.T(), ts.API.db)
-}
-
-func (ts *SCIMTokensTestSuite) tokensPath(provider *models.SSOProvider) string {
-	return "/admin/sso/providers/" + provider.ID.String() + "/scim/tokens"
-}
-
-func (ts *SCIMTokensTestSuite) request(method, path string, body any) *httptest.ResponseRecorder {
-	return serveAdmin(ts.T(), ts.API, method, path, body)
-}
-
-func (ts *SCIMTokensTestSuite) create(provider *models.SSOProvider, body any) AdminSCIMTokenCreateResponse {
-	w := ts.request(http.MethodPost, ts.tokensPath(provider), body)
-	require.Equal(ts.T(), http.StatusCreated, w.Code, w.Body.String())
-
-	var response AdminSCIMTokenCreateResponse
-	require.NoError(ts.T(), json.Unmarshal(w.Body.Bytes(), &response))
-	return response
-}
-
-func (ts *SCIMTokensTestSuite) scimRequest(token string) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(http.MethodGet, "/scim/v2/Users", nil)
-	r.Header.Set("Authorization", "Bearer "+token)
-	w := httptest.NewRecorder()
-	ts.API.handler.ServeHTTP(w, r)
-	return w
-}
-
 func (ts *SCIMTokensTestSuite) TestCreate() {
 	w := ts.request(http.MethodPost, ts.tokensPath(ts.Provider), map[string]any{})
 	require.Equal(ts.T(), http.StatusCreated, w.Code, w.Body.String())
@@ -280,19 +251,6 @@ func (ts *SCIMTokensTestSuite) TestDisabled() {
 	}
 }
 
-func (ts *SCIMTokensTestSuite) scimPath(provider *models.SSOProvider) string {
-	return "/admin/sso/providers/" + provider.ID.String() + "/scim"
-}
-
-func (ts *SCIMTokensTestSuite) status(method string, provider *models.SSOProvider) AdminSCIMStatusResponse {
-	w := ts.request(method, ts.scimPath(provider), nil)
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
-
-	var response AdminSCIMStatusResponse
-	require.NoError(ts.T(), json.Unmarshal(w.Body.Bytes(), &response))
-	return response
-}
-
 func (ts *SCIMTokensTestSuite) TestStatus() {
 	status := ts.status(http.MethodGet, createSSOProvider(ts.T(), ts.API.db))
 	require.False(ts.T(), status.Enabled)
@@ -464,15 +422,6 @@ func (ts *SCIMTokensTestSuite) TestConcurrentEnableAndDisable() {
 	require.Equal(ts.T(), []string{string(models.SCIMEnabledAction), string(models.SCIMDisabledAction)}, ts.scimActions(provider))
 }
 
-func (ts *SCIMTokensTestSuite) scimActions(provider *models.SSOProvider) []string {
-	entries := queryAuditEntries(ts.T(), ts.API.db, "payload->>'log_type' = ? AND payload->'traits'->>'sso_provider_id' = ?", "scim", provider.ID.String())
-	actions := []string{}
-	for _, entry := range entries {
-		actions = append(actions, entry.Payload["action"].(string))
-	}
-	return actions
-}
-
 func (ts *SCIMTokensTestSuite) TestStatusForUnknownProvider() {
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
 		w := ts.request(method, "/admin/sso/providers/"+uuid.Must(uuid.NewV4()).String()+"/scim", nil)
@@ -480,10 +429,6 @@ func (ts *SCIMTokensTestSuite) TestStatusForUnknownProvider() {
 		require.Contains(ts.T(), w.Body.String(), "sso_provider_not_found", method)
 	}
 	require.Empty(ts.T(), ts.tokenEvents())
-}
-
-func (ts *SCIMTokensTestSuite) setProviderDisabled(disabled bool) {
-	require.NoError(ts.T(), ts.API.db.RawQuery("UPDATE "+ts.Provider.TableName()+" SET disabled = ? WHERE id = ?", disabled, ts.Provider.ID).Exec())
 }
 
 func (ts *SCIMTokensTestSuite) TestStatusForDisabledProvider() {
@@ -521,30 +466,6 @@ func (ts *SCIMTokensTestSuite) TestStatusForDisabledProvider() {
 }
 
 type scimTokenEvent struct{ action, prefix string }
-
-func (ts *SCIMTokensTestSuite) tokenEvents() []scimTokenEvent {
-	entries := queryAuditEntries(ts.T(), ts.API.db, "payload->>'log_type' = ?", "scim")
-
-	events := []scimTokenEvent{}
-	for _, entry := range entries {
-		require.Equal(ts.T(), "supabase_admin", entry.Payload["actor_username"])
-		traits := entry.Payload["traits"].(map[string]any)
-		require.Equal(ts.T(), ts.Provider.ID.String(), traits["sso_provider_id"])
-		require.Equal(ts.T(), "success", traits["outcome"])
-		prefix, _ := traits["token_prefix"].(string)
-		if prefixes, ok := traits["token_prefixes"].([]any); ok && len(prefixes) > 0 {
-			require.Len(ts.T(), prefixes, 1)
-			prefix = prefixes[0].(string)
-		}
-		events = append(events, scimTokenEvent{entry.Payload["action"].(string), prefix})
-	}
-	return events
-}
-
-func (ts *SCIMTokensTestSuite) revoke(prefix string) {
-	w := ts.request(http.MethodDelete, ts.tokensPath(ts.Provider)+"/"+prefix, nil)
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
-}
 
 func (ts *SCIMTokensTestSuite) TestAuditLog() {
 	first := ts.create(ts.Provider, map[string]any{})
@@ -591,4 +512,83 @@ func (ts *SCIMTokensTestSuite) TestEnableSSODisabledProvider() {
 
 	require.NoError(ts.T(), ts.API.db.RawQuery("UPDATE "+provider.TableName()+" SET disabled = false WHERE id = ?", provider.ID).Exec())
 	require.True(ts.T(), ts.status(http.MethodGet, provider).Enabled)
+}
+
+func (ts *SCIMTokensTestSuite) createProvider() *models.SSOProvider {
+	return createSCIMEnabledProvider(ts.T(), ts.API.db)
+}
+
+func (ts *SCIMTokensTestSuite) tokensPath(provider *models.SSOProvider) string {
+	return "/admin/sso/providers/" + provider.ID.String() + "/scim/tokens"
+}
+
+func (ts *SCIMTokensTestSuite) request(method, path string, body any) *httptest.ResponseRecorder {
+	return serveAdmin(ts.T(), ts.API, method, path, body)
+}
+
+func (ts *SCIMTokensTestSuite) create(provider *models.SSOProvider, body any) AdminSCIMTokenCreateResponse {
+	w := ts.request(http.MethodPost, ts.tokensPath(provider), body)
+	require.Equal(ts.T(), http.StatusCreated, w.Code, w.Body.String())
+
+	var response AdminSCIMTokenCreateResponse
+	require.NoError(ts.T(), json.Unmarshal(w.Body.Bytes(), &response))
+	return response
+}
+
+func (ts *SCIMTokensTestSuite) scimRequest(token string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodGet, "/scim/v2/Users", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	ts.API.handler.ServeHTTP(w, r)
+	return w
+}
+
+func (ts *SCIMTokensTestSuite) scimPath(provider *models.SSOProvider) string {
+	return "/admin/sso/providers/" + provider.ID.String() + "/scim"
+}
+
+func (ts *SCIMTokensTestSuite) status(method string, provider *models.SSOProvider) AdminSCIMStatusResponse {
+	w := ts.request(method, ts.scimPath(provider), nil)
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+
+	var response AdminSCIMStatusResponse
+	require.NoError(ts.T(), json.Unmarshal(w.Body.Bytes(), &response))
+	return response
+}
+
+func (ts *SCIMTokensTestSuite) scimActions(provider *models.SSOProvider) []string {
+	entries := queryAuditEntries(ts.T(), ts.API.db, "payload->>'log_type' = ? AND payload->'traits'->>'sso_provider_id' = ?", "scim", provider.ID.String())
+	actions := []string{}
+	for _, entry := range entries {
+		actions = append(actions, entry.Payload["action"].(string))
+	}
+	return actions
+}
+
+func (ts *SCIMTokensTestSuite) setProviderDisabled(disabled bool) {
+	require.NoError(ts.T(), ts.API.db.RawQuery("UPDATE "+ts.Provider.TableName()+" SET disabled = ? WHERE id = ?", disabled, ts.Provider.ID).Exec())
+}
+
+func (ts *SCIMTokensTestSuite) tokenEvents() []scimTokenEvent {
+	entries := queryAuditEntries(ts.T(), ts.API.db, "payload->>'log_type' = ?", "scim")
+
+	events := []scimTokenEvent{}
+	for _, entry := range entries {
+		require.Equal(ts.T(), "supabase_admin", entry.Payload["actor_username"])
+		traits := entry.Payload["traits"].(map[string]any)
+		require.Equal(ts.T(), ts.Provider.ID.String(), traits["sso_provider_id"])
+		require.Equal(ts.T(), "success", traits["outcome"])
+		prefix, _ := traits["token_prefix"].(string)
+		if prefixes, ok := traits["token_prefixes"].([]any); ok && len(prefixes) > 0 {
+			require.Len(ts.T(), prefixes, 1)
+			prefix = prefixes[0].(string)
+		}
+		events = append(events, scimTokenEvent{entry.Payload["action"].(string), prefix})
+	}
+	return events
+}
+
+func (ts *SCIMTokensTestSuite) revoke(prefix string) {
+	w := ts.request(http.MethodDelete, ts.tokensPath(ts.Provider)+"/"+prefix, nil)
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 }

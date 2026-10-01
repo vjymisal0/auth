@@ -50,19 +50,11 @@ func (ts *SCIMTestSuite) list(token, filter string) map[string]any {
 	return body
 }
 
-func userWith(userName, externalID string) string {
-	return `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"` + userName + `","externalId":"` + externalID + `","emails":[{"primary":true,"value":"` + userName + `"}]}`
-}
-
 func (ts *SCIMTestSuite) repository() (context.Context, server.Repository[*core.User]) {
 	ctx, err := newSCIMTokenValidator(ts.API.db)(context.Background(), ts.TokenA)
 	require.NoError(ts.T(), err)
 	ctx = scimRequestKey.WithValue(ctx, httptest.NewRequest(http.MethodPost, "/scim/v2/Users", nil))
 	return ctx, &scimUserRepository{api: ts.API}
-}
-
-func emails(value string) []core.Email {
-	return []core.Email{{Value: value, Primary: new(true)}}
 }
 
 func (ts *SCIMTestSuite) TestOktaLifecycle() {
@@ -739,6 +731,24 @@ func (ts *SCIMTestSuite) TestUsersGroupsAttribute() {
 	require.Equal(ts.T(), eng, groupsOf(got)[0]["value"])
 }
 
+func TestSCIMSavedUserProjectionSkipsGroupsOnCreate(t *testing.T) {
+	created := scimUserChange{target: models.SCIMTarget{ProviderID: uuid.Must(uuid.NewV4())}}
+	require.False(t, scimSavedUserProjection(created).Returns("groups"))
+	require.True(t, scimSavedUserProjection(created).Returns("userName"))
+
+	replaced := created
+	replaced.target.ID = uuid.Must(uuid.NewV4())
+	require.True(t, scimSavedUserProjection(replaced).Returns("groups"))
+}
+
+func userWith(userName, externalID string) string {
+	return `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"` + userName + `","externalId":"` + externalID + `","emails":[{"primary":true,"value":"` + userName + `"}]}`
+}
+
+func emails(value string) []core.Email {
+	return []core.Email{{Value: value, Primary: new(true)}}
+}
+
 func oktaUserWith(field string, value any) string {
 	return withField(oktaUser, field, value)
 }
@@ -757,14 +767,4 @@ func withField(body, field string, value any) string {
 
 func patchOp(ops ...string) string {
 	return `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[` + strings.Join(ops, ",") + `]}`
-}
-
-func TestSCIMSavedUserProjectionSkipsGroupsOnCreate(t *testing.T) {
-	created := scimUserChange{target: models.SCIMTarget{ProviderID: uuid.Must(uuid.NewV4())}}
-	require.False(t, scimSavedUserProjection(created).Returns("groups"))
-	require.True(t, scimSavedUserProjection(created).Returns("userName"))
-
-	replaced := created
-	replaced.target.ID = uuid.Must(uuid.NewV4())
-	require.True(t, scimSavedUserProjection(replaced).Returns("groups"))
 }

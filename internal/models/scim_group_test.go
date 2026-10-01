@@ -29,22 +29,6 @@ func (ts *SCIMGroupTestSuite) SetupTest() {
 	ts.provider = ts.createProvider()
 }
 
-func (ts *SCIMGroupTestSuite) createProvider() *SSOProvider {
-	return createSCIMTestProvider(ts.T(), ts.db)
-}
-
-func (ts *SCIMGroupTestSuite) createGroup(providerID uuid.UUID, displayName string) *SCIMGroup {
-	group, err := CreateSCIMGroup(ts.db, providerID, []byte(fmt.Sprintf(`{"displayName":%q}`, displayName)))
-	require.NoError(ts.T(), err)
-	return group
-}
-
-func (ts *SCIMGroupTestSuite) createUser(providerID uuid.UUID, userName string) *SCIMUser {
-	user, err := CreateSCIMUser(ts.db, providerID, []byte(fmt.Sprintf(`{"userName":%q}`, userName)))
-	require.NoError(ts.T(), err)
-	return user
-}
-
 func (ts *SCIMGroupTestSuite) TestCreate() {
 	group, err := CreateSCIMGroup(ts.db, ts.provider.ID, []byte(`{"displayName":"Engineering","externalId":"ext-1"}`))
 	require.NoError(ts.T(), err)
@@ -339,20 +323,6 @@ func (ts *SCIMGroupTestSuite) TestFindMembershipsByUser() {
 	require.Empty(ts.T(), groups)
 }
 
-func (ts *SCIMGroupTestSuite) beginTx() *storage.Connection {
-	tx, err := ts.db.NewTransaction()
-	require.NoError(ts.T(), err)
-	return &storage.Connection{Connection: tx}
-}
-
-func (ts *SCIMGroupTestSuite) lockWaiters() int {
-	row := struct {
-		Count int `db:"count"`
-	}{}
-	require.NoError(ts.T(), ts.db.RawQuery("SELECT count(*) AS count FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'").First(&row))
-	return row.Count
-}
-
 func (ts *SCIMGroupTestSuite) TestReplaceMembersReturnsMembersInRenderOrder() {
 	group := ts.createGroup(ts.provider.ID, "Engineering")
 	alice := ts.createUser(ts.provider.ID, "alice")
@@ -381,4 +351,34 @@ func sortedUUIDs(a, b uuid.UUID) (uuid.UUID, uuid.UUID) {
 		return b, a
 	}
 	return a, b
+}
+
+func (ts *SCIMGroupTestSuite) createProvider() *SSOProvider {
+	return createSCIMTestProvider(ts.T(), ts.db)
+}
+
+func (ts *SCIMGroupTestSuite) createGroup(providerID uuid.UUID, displayName string) *SCIMGroup {
+	group, err := CreateSCIMGroup(ts.db, providerID, []byte(fmt.Sprintf(`{"displayName":%q}`, displayName)))
+	require.NoError(ts.T(), err)
+	return group
+}
+
+func (ts *SCIMGroupTestSuite) createUser(providerID uuid.UUID, userName string) *SCIMUser {
+	user, err := CreateSCIMUser(ts.db, providerID, []byte(fmt.Sprintf(`{"userName":%q}`, userName)))
+	require.NoError(ts.T(), err)
+	return user
+}
+
+func (ts *SCIMGroupTestSuite) beginTx() *storage.Connection {
+	tx, err := ts.db.NewTransaction()
+	require.NoError(ts.T(), err)
+	return &storage.Connection{Connection: tx}
+}
+
+func (ts *SCIMGroupTestSuite) lockWaiters() int {
+	row := struct {
+		Count int `db:"count"`
+	}{}
+	require.NoError(ts.T(), ts.db.RawQuery("SELECT count(*) AS count FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'").First(&row))
+	return row.Count
 }

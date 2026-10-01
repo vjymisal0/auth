@@ -267,40 +267,6 @@ func TestSCIM(t *testing.T) {
 
 const scimValidToken = "scim_valid"
 
-func scimFixture(t *testing.T, file string) string {
-	data, err := fs.ReadFile(os.DirFS("testdata/scim"), file)
-	require.NoError(t, err)
-	return string(data)
-}
-
-func newSCIMServerFor(externalURL string) *server.Server {
-	validate := func(ctx context.Context, candidate string) (context.Context, error) {
-		if candidate != scimValidToken {
-			return ctx, server.ErrInvalidToken
-		}
-		return ctx, nil
-	}
-	return (&API{config: &conf.GlobalConfiguration{API: conf.APIConfiguration{ExternalURL: externalURL}}}).newSCIMServer(validate, nil)
-}
-
-func scimServe(t *testing.T, srv *server.Server, method, path, body string, headers ...string) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(method, path, strings.NewReader(body))
-	r.Header.Set("Content-Type", protocol.MediaType)
-	r.Header.Set("Authorization", "Bearer "+scimValidToken)
-	for i := 0; i+1 < len(headers); i += 2 {
-		r.Header.Set(headers[i], headers[i+1])
-	}
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
-	return w
-}
-
-func scimDecode(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
-	var body map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	return body
-}
-
 func TestSCIMServer(t *testing.T) {
 	srv := newSCIMServerFor("http://localhost:9999")
 	require.NotNil(t, srv)
@@ -573,4 +539,38 @@ func queryAuditEntries(t require.TestingT, db *storage.Connection, where string,
 	entries := []models.AuditLogEntry{}
 	require.NoError(t, db.Q().Where(where, args...).Order("created_at asc").All(&entries))
 	return entries
+}
+
+func scimFixture(t *testing.T, file string) string {
+	data, err := fs.ReadFile(os.DirFS("testdata/scim"), file)
+	require.NoError(t, err)
+	return string(data)
+}
+
+func newSCIMServerFor(externalURL string) *server.Server {
+	validate := func(ctx context.Context, candidate string) (context.Context, error) {
+		if candidate != scimValidToken {
+			return ctx, server.ErrInvalidToken
+		}
+		return ctx, nil
+	}
+	return (&API{config: &conf.GlobalConfiguration{API: conf.APIConfiguration{ExternalURL: externalURL}}}).newSCIMServer(validate, nil)
+}
+
+func scimServe(t *testing.T, srv *server.Server, method, path, body string, headers ...string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Header.Set("Content-Type", protocol.MediaType)
+	r.Header.Set("Authorization", "Bearer "+scimValidToken)
+	for i := 0; i+1 < len(headers); i += 2 {
+		r.Header.Set(headers[i], headers[i+1])
+	}
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+	return w
+}
+
+func scimDecode(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	return body
 }

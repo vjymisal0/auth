@@ -185,6 +185,40 @@ func NewAuditLogEntries(config conf.AuditLogConfiguration, r *http.Request, tx *
 	return nil
 }
 
+func FindAuditLogEntries(tx *storage.Connection, filterColumns []string, filterValue string, pageParams *Pagination) ([]*AuditLogEntry, error) {
+	q := tx.Q().Order("created_at desc").Where("instance_id = ?", uuid.Nil)
+
+	if len(filterColumns) > 0 && filterValue != "" {
+		lf := "%" + filterValue + "%"
+
+		builder := bytes.NewBufferString("(")
+		values := make([]any, len(filterColumns))
+
+		for idx, col := range filterColumns {
+			fmt.Fprintf(builder, "payload->>'%s' ILIKE ?", col)
+			values[idx] = lf
+
+			if idx+1 < len(filterColumns) {
+				builder.WriteString(" OR ")
+			}
+		}
+		builder.WriteString(")")
+
+		q = q.Where(builder.String(), values...)
+	}
+
+	logs := []*AuditLogEntry{}
+	var err error
+	if pageParams != nil {
+		err = q.Paginate(int(pageParams.Page), int(pageParams.PerPage)).All(&logs) // #nosec G115
+		pageParams.Count = uint64(q.Paginator.TotalEntriesSize)                    // #nosec G115
+	} else {
+		err = q.All(&logs)
+	}
+
+	return logs, err
+}
+
 func buildAuditLogEntry(r *http.Request, event AuditEvent, ipAddress string) (AuditLogEntry, time.Time) {
 	id := uuid.Must(uuid.NewV4())
 	actor, action, traits := event.Actor, event.Action, event.Traits
@@ -252,38 +286,4 @@ func buildAuditLogEntry(r *http.Request, event AuditEvent, ipAddress string) (Au
 		Payload:   JSONMap(payload),
 		IPAddress: ipAddress,
 	}, createdAt
-}
-
-func FindAuditLogEntries(tx *storage.Connection, filterColumns []string, filterValue string, pageParams *Pagination) ([]*AuditLogEntry, error) {
-	q := tx.Q().Order("created_at desc").Where("instance_id = ?", uuid.Nil)
-
-	if len(filterColumns) > 0 && filterValue != "" {
-		lf := "%" + filterValue + "%"
-
-		builder := bytes.NewBufferString("(")
-		values := make([]interface{}, len(filterColumns))
-
-		for idx, col := range filterColumns {
-			fmt.Fprintf(builder, "payload->>'%s' ILIKE ?", col)
-			values[idx] = lf
-
-			if idx+1 < len(filterColumns) {
-				builder.WriteString(" OR ")
-			}
-		}
-		builder.WriteString(")")
-
-		q = q.Where(builder.String(), values...)
-	}
-
-	logs := []*AuditLogEntry{}
-	var err error
-	if pageParams != nil {
-		err = q.Paginate(int(pageParams.Page), int(pageParams.PerPage)).All(&logs) // #nosec G115
-		pageParams.Count = uint64(q.Paginator.TotalEntriesSize)                    // #nosec G115
-	} else {
-		err = q.All(&logs)
-	}
-
-	return logs, err
 }

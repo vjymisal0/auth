@@ -33,16 +33,6 @@ func (ts *AuditLogEntryTestSuite) SetupTest() {
 	ts.actor = actor
 }
 
-func (ts *AuditLogEntryTestSuite) event(action AuditAction, n int) AuditEvent {
-	return AuditEvent{Actor: ts.actor, Action: action, Traits: map[string]any{"n": n}}
-}
-
-func (ts *AuditLogEntryTestSuite) entries() []*AuditLogEntry {
-	entries, err := FindAuditLogEntries(ts.db, nil, "", nil)
-	require.NoError(ts.T(), err)
-	return entries
-}
-
 func (ts *AuditLogEntryTestSuite) TestBatchMatchesSingleEntry() {
 	single := ts.event(SCIMGroupMemberAddedAction, 1)
 	require.NoError(ts.T(), NewAuditLogEntry(conf.AuditLogConfiguration{}, ts.r, ts.db, single.Actor, single.Action, "192.0.2.1", single.Traits))
@@ -82,4 +72,14 @@ func (ts *AuditLogEntryTestSuite) TestBatchSkipsPostgresWhenDisabled() {
 	events := []AuditEvent{ts.event(SCIMGroupMemberAddedAction, 1)}
 	require.NoError(ts.T(), NewAuditLogEntries(conf.AuditLogConfiguration{DisablePostgres: true}, ts.r, ts.db, events))
 	require.Empty(ts.T(), ts.entries())
+}
+
+func (ts *AuditLogEntryTestSuite) event(action AuditAction, n int) AuditEvent {
+	return AuditEvent{Actor: ts.actor, Action: action, Traits: map[string]any{"n": n}}
+}
+
+func (ts *AuditLogEntryTestSuite) entries() []*AuditLogEntry {
+	entries, err := FindAuditLogEntries(ts.db, nil, "", nil)
+	require.NoError(ts.T(), err)
+	return entries
 }

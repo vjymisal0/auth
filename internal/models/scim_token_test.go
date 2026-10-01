@@ -27,16 +27,6 @@ func (ts *SCIMTokenTestSuite) SetupTest() {
 	ts.provider = ts.createProvider()
 }
 
-func (ts *SCIMTokenTestSuite) createProvider() *SSOProvider {
-	return createSCIMTestProvider(ts.T(), ts.db)
-}
-
-func (ts *SCIMTokenTestSuite) createToken(expiresAt *time.Time) (*SCIMToken, string) {
-	token, plaintext, err := CreateSCIMToken(ts.db, ts.provider, expiresAt)
-	require.NoError(ts.T(), err)
-	return token, plaintext
-}
-
 func (ts *SCIMTokenTestSuite) TestCreate() {
 	token, plaintext := ts.createToken(nil)
 
@@ -227,12 +217,6 @@ func (ts *SCIMTokenTestSuite) TestAuthenticateRejects() {
 	}
 }
 
-func (ts *SCIMTokenTestSuite) expire(token *SCIMToken) {
-	require.NoError(ts.T(), ts.db.RawQuery(
-		"UPDATE scim_tokens SET created_at = now() - interval '2 hours', expires_at = now() - interval '1 hour' WHERE id = ?", token.ID,
-	).Exec())
-}
-
 func (ts *SCIMTokenTestSuite) TestFindActiveBySSOProvider() {
 	active, _ := ts.createToken(nil)
 	revoked, _ := ts.createToken(nil)
@@ -250,4 +234,20 @@ func (ts *SCIMTokenTestSuite) TestFindActiveBySSOProvider() {
 	tokens, err = FindActiveSCIMTokensBySSOProvider(ts.db, uuid.Must(uuid.NewV4()))
 	require.NoError(ts.T(), err)
 	require.Empty(ts.T(), tokens)
+}
+
+func (ts *SCIMTokenTestSuite) createProvider() *SSOProvider {
+	return createSCIMTestProvider(ts.T(), ts.db)
+}
+
+func (ts *SCIMTokenTestSuite) createToken(expiresAt *time.Time) (*SCIMToken, string) {
+	token, plaintext, err := CreateSCIMToken(ts.db, ts.provider, expiresAt)
+	require.NoError(ts.T(), err)
+	return token, plaintext
+}
+
+func (ts *SCIMTokenTestSuite) expire(token *SCIMToken) {
+	require.NoError(ts.T(), ts.db.RawQuery(
+		"UPDATE scim_tokens SET created_at = now() - interval '2 hours', expires_at = now() - interval '1 hour' WHERE id = ?", token.ID,
+	).Exec())
 }

@@ -238,13 +238,13 @@ func LockAccountLinkingEmails(tx *storage.Connection, providerType string, email
 	return nil
 }
 
-func advisoryXactLock(tx *storage.Connection, key string) error {
-	return tx.RawQuery("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", key).Exec()
-}
-
 func LockAccountLinking(tx *storage.Connection, providerType, email string) error {
 	if err := advisoryXactLock(tx, providerType+"|"+strings.ToLower(email)); err != nil {
 		return errors.Wrap(err, "error locking account linking")
 	}
 	return nil
+}
+
+func advisoryXactLock(tx *storage.Connection, key string) error {
+	return tx.RawQuery("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", key).Exec()
 }
