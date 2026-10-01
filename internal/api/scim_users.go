@@ -20,6 +20,8 @@ type scimUserRepository struct {
 	api *API
 }
 
+type scimUserWrite func(tx *storage.Connection, change scimUserChange) (*models.SCIMUser, *models.User, error)
+
 type scimUserChange struct {
 	r        *http.Request
 	target   models.SCIMTarget
@@ -120,7 +122,7 @@ func (s *scimUserRepository) Delete(ctx context.Context, id, version string) err
 	}))
 }
 
-func (s *scimUserRepository) save(db *storage.Connection, change scimUserChange, write func(*storage.Connection, scimUserChange) (*models.SCIMUser, *models.User, error)) (*core.User, error) {
+func (s *scimUserRepository) save(db *storage.Connection, change scimUserChange, write scimUserWrite) (*core.User, error) {
 	var (
 		row     *models.SCIMUser
 		created *models.User

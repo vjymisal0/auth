@@ -17,6 +17,8 @@ type scimGroupRepository struct {
 	api *API
 }
 
+type scimGroupWrite func(tx *storage.Connection, resource []byte) (*models.SCIMGroup, bool, error)
+
 type scimGroupChange struct {
 	r       *http.Request
 	action  models.AuditAction
@@ -99,7 +101,7 @@ func (s *scimGroupRepository) Delete(ctx context.Context, id, version string) er
 	}))
 }
 
-func (s *scimGroupRepository) save(ctx context.Context, action models.AuditAction, group *core.Group, write func(tx *storage.Connection, resource []byte) (*models.SCIMGroup, bool, error)) (*core.Group, error) {
+func (s *scimGroupRepository) save(ctx context.Context, action models.AuditAction, group *core.Group, write scimGroupWrite) (*core.Group, error) {
 	members, err := scimMemberIDs(group.Members)
 	if err != nil {
 		return nil, err
