@@ -476,7 +476,7 @@ func TestSCIMSuite(t *testing.T) {
 	api, _ := setupSCIMAPI(t, func(config *conf.GlobalConfiguration) {
 		config.RateLimitScim = 1_000_000
 	})
-	defer api.db.Close()
+	defer func() { require.NoError(t, api.db.Close()) }()
 
 	suite.Run(t, &SCIMTestSuite{API: api})
 }

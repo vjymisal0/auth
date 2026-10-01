@@ -281,25 +281,25 @@ func TestSCIMEnabled(t *testing.T) {
 		cfg, err := LoadGlobalFromEnv()
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
-		assert.Equal(t, false, cfg.SSO.SCIM.Enabled)
+		assert.False(t, cfg.SSO.SCIM.Enabled)
 	}
 
 	{
 		baseEnv()
-		os.Setenv("GOTRUE_SSO_SCIM_ENABLED", "true")
+		t.Setenv("GOTRUE_SSO_SCIM_ENABLED", "true")
 		cfg, err := LoadGlobalFromEnv()
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
-		assert.Equal(t, true, cfg.SSO.SCIM.Enabled)
+		assert.True(t, cfg.SSO.SCIM.Enabled)
 	}
 
 	{
 		baseEnv()
-		os.Setenv("GOTRUE_EXPERIMENTAL_SCIM_ENABLED", "true")
+		t.Setenv("GOTRUE_EXPERIMENTAL_SCIM_ENABLED", "true")
 		cfg, err := LoadGlobalFromEnv()
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
-		assert.Equal(t, false, cfg.SSO.SCIM.Enabled)
+		assert.False(t, cfg.SSO.SCIM.Enabled)
 	}
 }
 

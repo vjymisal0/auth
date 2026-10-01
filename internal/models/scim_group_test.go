@@ -20,7 +20,7 @@ type SCIMGroupTestSuite struct {
 
 func TestSCIMGroup(t *testing.T) {
 	ts := &SCIMGroupTestSuite{db: setupSCIMTestDB(t)}
-	defer ts.db.Close()
+	defer func() { require.NoError(t, ts.db.Close()) }()
 	suite.Run(t, ts)
 }
 

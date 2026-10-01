@@ -31,7 +31,7 @@ type SCIMTokensTestSuite struct {
 
 func TestSCIMTokens(t *testing.T) {
 	api, config := setupSCIMAPI(t, nil)
-	defer api.db.Close()
+	defer func() { require.NoError(t, api.db.Close()) }()
 
 	suite.Run(t, &SCIMTokensTestSuite{API: api, Config: config})
 }

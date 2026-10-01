@@ -78,27 +78,31 @@ func (s *scimGroupRepository) Delete(ctx context.Context, id, version string) er
 		return err
 	}
 	return scimError(s.api.db.WithContext(ctx).Transaction(func(tx *storage.Connection) error {
-		row, err := models.FindSCIMGroupForUpdate(tx, target.ProviderID, target.ID)
-		if err != nil {
-			return err
-		}
-		removed, err := models.ClearSCIMGroupMembers(tx, row.ID)
-		if err != nil {
-			return err
-		}
-		if row, err = models.DeleteSCIMGroup(tx, target); err != nil {
-			return err
-		}
-		events, err := s.memberEvents(tx, r, row, nil, removed)
-		if err != nil {
-			return err
-		}
-		deleted, err := s.groupEvent(r, models.SCIMGroupDeletedAction, row)
-		if err != nil {
-			return err
-		}
-		return s.api.auditSCIMEvents(tx, r, append(events, deleted))
+		return s.delete(tx, r, target)
 	}))
+}
+
+func (s *scimGroupRepository) delete(tx *storage.Connection, r *http.Request, target models.SCIMTarget) error {
+	row, err := models.FindSCIMGroupForUpdate(tx, target.ProviderID, target.ID)
+	if err != nil {
+		return err
+	}
+	removed, err := models.ClearSCIMGroupMembers(tx, row.ID)
+	if err != nil {
+		return err
+	}
+	if row, err = models.DeleteSCIMGroup(tx, target); err != nil {
+		return err
+	}
+	events, err := s.memberEvents(tx, r, row, scimMemberDiff{removed: removed})
+	if err != nil {
+		return err
+	}
+	deleted, err := s.groupEvent(r, models.SCIMGroupDeletedAction, row)
+	if err != nil {
+		return err
+	}
+	return s.api.auditSCIMEvents(tx, r, append(events, deleted))
 }
 
 func (s *scimGroupRepository) save(ctx context.Context, action models.AuditAction, group *core.Group, write scimGroupWrite) (*core.Group, error) {
@@ -156,7 +160,7 @@ func (s *scimGroupRepository) applyMembers(tx *storage.Connection, change scimGr
 	if err != nil {
 		return nil, nil, err
 	}
-	memberEvents, err := s.memberEvents(tx, change.r, row, added, removed)
+	memberEvents, err := s.memberEvents(tx, change.r, row, scimMemberDiff{added: added, removed: removed})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -257,19 +261,23 @@ func (s *scimGroupRepository) groupEvent(r *http.Request, action models.AuditAct
 	}, nil
 }
 
-func (s *scimGroupRepository) memberEvents(tx *storage.Connection, r *http.Request, row *models.SCIMGroup, added, removed []uuid.UUID) ([]scimAuditEvent, error) {
-	links, err := models.FindSCIMUserLinks(tx, slices.Concat(added, removed))
+type scimMemberDiff struct {
+	added, removed []uuid.UUID
+}
+
+func (s *scimGroupRepository) memberEvents(tx *storage.Connection, r *http.Request, row *models.SCIMGroup, diff scimMemberDiff) ([]scimAuditEvent, error) {
+	links, err := models.FindSCIMUserLinks(tx, slices.Concat(diff.added, diff.removed))
 	if err != nil {
 		return nil, err
 	}
 	actor := scimActor(r)
-	events := make([]scimAuditEvent, 0, len(added)+len(removed))
+	events := make([]scimAuditEvent, 0, len(diff.added)+len(diff.removed))
 	for _, change := range []struct {
 		action models.AuditAction
 		ids    []uuid.UUID
 	}{
-		{action: models.SCIMGroupMemberAddedAction, ids: added},
-		{action: models.SCIMGroupMemberRemovedAction, ids: removed},
+		{action: models.SCIMGroupMemberAddedAction, ids: diff.added},
+		{action: models.SCIMGroupMemberRemovedAction, ids: diff.removed},
 	} {
 		for _, id := range change.ids {
 			var userID *uuid.UUID

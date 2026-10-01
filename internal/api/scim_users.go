@@ -17,6 +17,12 @@ import (
 	"github.com/supabase/auth/internal/storage"
 )
 
+const (
+	scimClaimSub           = "sub"
+	scimClaimEmail         = "email"
+	scimClaimEmailVerified = "email_verified"
+)
+
 type scimUserRepository struct {
 	api *API
 }
@@ -328,9 +334,9 @@ func (s *scimUserRepository) renameIdentity(tx *storage.Connection, change scimU
 	if err != nil || from == user.UserName {
 		return err
 	}
-	data := map[string]any{"sub": user.UserName}
+	data := map[string]any{scimClaimSub: user.UserName}
 	if email := scimUserEmail(user); email != "" {
-		data["email"] = email
+		data[scimClaimEmail] = email
 	}
 	err = models.RenameSCIMIdentity(tx, models.SCIMIdentityRename{
 		UserID:   userID,
@@ -365,7 +371,7 @@ func (s *scimUserRepository) changeEmail(tx *storage.Connection, change scimUser
 	if err := linked.ClearAllPendingTokens(tx); err != nil {
 		return err
 	}
-	return linked.UpdateUserMetaData(tx, map[string]any{"email": email})
+	return linked.UpdateUserMetaData(tx, map[string]any{scimClaimEmail: email})
 }
 
 func (s *scimUserRepository) audit(tx *storage.Connection, r *http.Request, action models.AuditAction, row *models.SCIMUser) error {
@@ -437,9 +443,9 @@ func scimPrimaryEmail(emails []core.Email) string {
 
 func scimIdentityData(user *core.User) map[string]any {
 	return map[string]any{
-		"sub":            user.UserName,
-		"email":          scimUserEmail(user),
-		"email_verified": true,
+		scimClaimSub:           user.UserName,
+		scimClaimEmail:         scimUserEmail(user),
+		scimClaimEmailVerified: true,
 	}
 }
 

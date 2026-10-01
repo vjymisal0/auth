@@ -18,7 +18,7 @@ type SCIMTokenTestSuite struct {
 
 func TestSCIMToken(t *testing.T) {
 	ts := &SCIMTokenTestSuite{db: setupSCIMTestDB(t)}
-	defer ts.db.Close()
+	defer func() { require.NoError(t, ts.db.Close()) }()
 	suite.Run(t, ts)
 }
 

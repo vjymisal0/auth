@@ -889,17 +889,17 @@ func (ts *AdminTestSuite) findSCIMUserByID(id uuid.UUID) *models.SCIMUser {
 func (ts *AdminTestSuite) TestAdminUserDeleteSoftDeletesSCIMUser() {
 	cases := []struct {
 		desc      string
-		body      map[string]interface{}
+		body      map[string]any
 		wantEmail string
 	}{
 		{
 			desc:      "hard delete",
-			body:      map[string]interface{}{"should_soft_delete": false},
+			body:      map[string]any{"should_soft_delete": false},
 			wantEmail: "scim-hard-delete@example.com",
 		},
 		{
 			desc:      "soft delete",
-			body:      map[string]interface{}{"should_soft_delete": true},
+			body:      map[string]any{"should_soft_delete": true},
 			wantEmail: "scim-soft-delete@example.com",
 		},
 	}

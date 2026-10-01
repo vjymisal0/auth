@@ -20,7 +20,6 @@ import (
 	"github.com/supabase/auth/internal/models"
 	"github.com/supabase/auth/internal/observability"
 	"github.com/supabase/auth/internal/storage"
-	"github.com/supabase/auth/internal/utilities"
 )
 
 const (
@@ -137,7 +136,7 @@ func (a *API) auditSCIMEvents(tx *storage.Connection, r *http.Request, events []
 		event.traits["outcome"] = "success"
 		entries[i] = models.AuditEvent{Actor: event.actor, Action: event.action, Traits: event.traits}
 	}
-	return models.NewAuditLogEntries(a.config.AuditLog, r, tx, utilities.GetIPAddress(r), entries)
+	return models.NewAuditLogEntries(a.config.AuditLog, r, tx, entries)
 }
 
 func scimBaseURL(config *conf.GlobalConfiguration) string {

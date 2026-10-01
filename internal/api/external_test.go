@@ -151,7 +151,7 @@ func (ts *ExternalTestSuite) TestSSOConcurrentCreateSameEmailLinksToOneUser() {
 
 	count, err := ts.API.db.Q().Where("email = ?", "sso-race@example.com").Count(&models.User{})
 	require.NoError(ts.T(), err)
-	require.EqualValues(ts.T(), 1, count)
+	require.Equal(ts.T(), 1, count)
 }
 
 func (ts *ExternalTestSuite) createUser(providerId string, email string, name string, avatar string, confirmationToken string) (*models.User, error) {

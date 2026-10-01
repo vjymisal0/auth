@@ -16,7 +16,7 @@ func TestSCIMRateLimit(t *testing.T) {
 	api, _ := setupSCIMAPI(t, func(config *conf.GlobalConfiguration) {
 		config.RateLimitScim = 1
 	})
-	defer api.db.Close()
+	defer func() { require.NoError(t, api.db.Close()) }()
 	require.NoError(t, models.TruncateAll(api.db))
 
 	token := func() string {
@@ -95,7 +95,7 @@ func TestSCIMRateLimitBoundsEveryUnauthenticatedRequest(t *testing.T) {
 	api, _ := setupSCIMAPI(t, func(config *conf.GlobalConfiguration) {
 		config.RateLimitScim = 1
 	})
-	defer api.db.Close()
+	defer func() { require.NoError(t, api.db.Close()) }()
 	require.NoError(t, models.TruncateAll(api.db))
 
 	type request struct{ path, authorization string }

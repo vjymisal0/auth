@@ -36,32 +36,36 @@ func (s *scimUserRepository) linkAuthUser(tx *storage.Connection, row *models.SC
 		return nil, false, err
 	}
 
-	linked, isNew := decision.User, false
-	switch decision.Decision {
-	case models.AccountExists, models.LinkAccount:
-		if err = scimRequireSSOUser(linked); err != nil {
+	if decision.Decision == models.CreateAccount {
+		linked, err := s.createAuthUser(tx, providerType, decision, user)
+		if err != nil {
 			return nil, false, err
 		}
-		if decision.Decision == models.LinkAccount {
-			if err = s.linkIdentity(tx, linked, providerType, user); err != nil {
-				return nil, false, err
-			}
-		}
-	case models.CreateAccount:
-		if linked, err = s.createAuthUser(tx, providerType, decision, user); err != nil {
-			return nil, false, err
-		}
-		isNew = true
-	case models.MultipleAccounts:
-		return nil, false, scimerrors.ErrUniqueness("multiple users share this email in the SSO provider")
-	default:
-		return nil, false, apierrors.NewInternalServerError("Unknown automatic linking decision: %v", decision.Decision)
-	}
-
-	if isNew {
 		return linked, true, models.LinkNewSCIMUser(tx, row, linked.ID)
 	}
+	linked, err := s.existingAuthUser(tx, providerType, decision, user)
+	if err != nil {
+		return nil, false, err
+	}
 	return linked, false, models.LinkSCIMUser(tx, row, linked.ID)
+}
+
+func (s *scimUserRepository) existingAuthUser(tx *storage.Connection, providerType string, decision models.AccountLinkingResult, user *core.User) (*models.User, error) {
+	switch decision.Decision {
+	case models.AccountExists, models.LinkAccount:
+		if err := scimRequireSSOUser(decision.User); err != nil {
+			return nil, err
+		}
+		if decision.Decision == models.LinkAccount {
+			if err := s.linkIdentity(tx, decision.User, providerType, user); err != nil {
+				return nil, err
+			}
+		}
+		return decision.User, nil
+	case models.MultipleAccounts:
+		return nil, scimerrors.ErrUniqueness("multiple users share this email in the SSO provider")
+	}
+	return nil, apierrors.NewInternalServerError("Unknown automatic linking decision: %v", decision.Decision)
 }
 
 func (s *scimUserRepository) linkIdentity(tx *storage.Connection, linked *models.User, providerType string, user *core.User) error {

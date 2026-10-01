@@ -154,10 +154,11 @@ func NewAuditLogEntry(config conf.AuditLogConfiguration, r *http.Request, tx *st
 type AuditEvent struct {
 	Actor  *User
 	Action AuditAction
-	Traits map[string]interface{}
+	Traits map[string]any
 }
 
-func NewAuditLogEntries(config conf.AuditLogConfiguration, r *http.Request, tx *storage.Connection, ipAddress string, events []AuditEvent) error {
+func NewAuditLogEntries(config conf.AuditLogConfiguration, r *http.Request, tx *storage.Connection, events []AuditEvent) error {
+	ipAddress := utilities.GetIPAddress(r)
 	ids := make([]uuid.UUID, len(events))
 	payloads := make([]string, len(events))
 	createdAt := make([]time.Time, len(events))
