@@ -58,7 +58,10 @@ func (s *scimUserRepository) linkAuthUser(tx *storage.Connection, row *models.SC
 		return nil, false, apierrors.NewInternalServerError("Unknown automatic linking decision: %v", decision.Decision)
 	}
 
-	return linked, isNew, models.LinkSCIMUser(tx, row, linked.ID)
+	if isNew {
+		return linked, true, models.LinkNewSCIMUser(tx, row, linked.ID)
+	}
+	return linked, false, models.LinkSCIMUser(tx, row, linked.ID)
 }
 
 func (s *scimUserRepository) linkIdentity(tx *storage.Connection, linked *models.User, providerType string, user *core.User) error {

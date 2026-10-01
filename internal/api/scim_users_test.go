@@ -758,3 +758,13 @@ func withField(body, field string, value any) string {
 func patchOp(ops ...string) string {
 	return `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[` + strings.Join(ops, ",") + `]}`
 }
+
+func TestSCIMSavedUserProjectionSkipsGroupsOnCreate(t *testing.T) {
+	created := scimUserChange{target: models.SCIMTarget{ProviderID: uuid.Must(uuid.NewV4())}}
+	require.False(t, scimSavedUserProjection(created).Returns("groups"))
+	require.True(t, scimSavedUserProjection(created).Returns("userName"))
+
+	replaced := created
+	replaced.target.ID = uuid.Must(uuid.NewV4())
+	require.True(t, scimSavedUserProjection(replaced).Returns("groups"))
+}

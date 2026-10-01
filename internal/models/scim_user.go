@@ -183,7 +183,10 @@ func LinkSCIMUser(tx *storage.Connection, user *SCIMUser, userID uuid.UUID) erro
 	if existing.Deleted {
 		return SCIMUserDeletedError{}
 	}
+	return LinkNewSCIMUser(tx, user, userID)
+}
 
+func LinkNewSCIMUser(tx *storage.Connection, user *SCIMUser, userID uuid.UUID) error {
 	if err := tx.RawQuery(
 		fmt.Sprintf("UPDATE %q SET user_id = ? WHERE id = ?", scimUsersTable.tableName),
 		userID, user.ID,

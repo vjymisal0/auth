@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/badoux/checkmail"
@@ -133,7 +134,7 @@ func (s *scimUserRepository) save(db *storage.Connection, change scimUserChange,
 			return terr
 		}
 		created = user
-		saved, terr = s.renderOne(tx, change.target.ProviderID, row, protocol.Projection{})
+		saved, terr = s.renderOne(tx, change.target.ProviderID, row, scimSavedUserProjection(change))
 		return terr
 	})
 	if err != nil {
@@ -192,6 +193,17 @@ func (s *scimUserRepository) groupMemberships(tx *storage.Connection, providerID
 		})
 	}
 	return groups, nil
+}
+
+func scimSavedUserProjection(change scimUserChange) protocol.Projection {
+	if change.target.ID != uuid.Nil {
+		return protocol.Projection{}
+	}
+	projection, err := protocol.ParseProjection(url.Values{"excludedAttributes": {"groups"}}, scimUserSchemas)
+	if err != nil {
+		return protocol.Projection{}
+	}
+	return projection
 }
 
 func (s *scimUserRepository) renderOne(tx *storage.Connection, providerID uuid.UUID, row *models.SCIMUser, projection protocol.Projection) (*core.User, error) {
