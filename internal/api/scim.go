@@ -6,13 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/didip/tollbooth/v5"
 	"github.com/didip/tollbooth/v5/limiter"
-	"github.com/go-chi/chi/v5"
 	"github.com/gofrs/uuid"
 	"github.com/supabase-community/scim-go/pkg/core"
 	"github.com/supabase-community/scim-go/pkg/protocol"
@@ -82,10 +82,6 @@ func scimBaseURL(config *conf.GlobalConfiguration) string {
 	return strings.TrimRight(config.API.ExternalURL, "/") + scimBasePath
 }
 
-func scimNotFound(w http.ResponseWriter, r *http.Request) error {
-	return protocol.SendError(w, scimerrors.ErrNotFound("Endpoint or resource does not exist"))
-}
-
 func scimTooManyRequests(w http.ResponseWriter, r *http.Request) error {
 	return protocol.SendError(w, errSCIMTooManyRequests())
 }
@@ -111,10 +107,10 @@ func (a *API) withSCIMRequest(w http.ResponseWriter, req *http.Request) (context
 	return scimRequestKey.WithValue(req.Context(), req), nil
 }
 
-func (a *API) limitSCIMHandler(lmt *limiter.Limiter, routes chi.Routes) func(http.Handler) http.Handler {
+func (a *API) limitSCIMByIP(lmt *limiter.Limiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !(scimHasBearerToken(r) && scimValidatesToken(routes, r)) && a.performRateLimiting(lmt, r) != nil {
+			if a.scimSkipsTokenValidator(r) && a.performRateLimiting(lmt, r) != nil {
 				handler(scimTooManyRequests)(w, r)
 				return
 			}
@@ -123,17 +119,11 @@ func (a *API) limitSCIMHandler(lmt *limiter.Limiter, routes chi.Routes) func(htt
 	}
 }
 
-func scimHasBearerToken(r *http.Request) bool {
-	scheme, token, _ := strings.Cut(r.Header.Get("Authorization"), " ")
-	return strings.EqualFold(scheme, "Bearer") && token != ""
-}
-
-func scimValidatesToken(routes chi.Routes, r *http.Request) bool {
-	path := r.URL.Path
-	if rctx := chi.RouteContext(r.Context()); rctx != nil && rctx.RoutePath != "" {
-		path = rctx.RoutePath
+func (a *API) scimSkipsTokenValidator(r *http.Request) bool {
+	if _, err := a.extractBearerToken(r); err != nil {
+		return true
 	}
-	return path != "/ServiceProviderConfig" && routes.Match(chi.NewRouteContext(), r.Method, path)
+	return r.URL.Path == scimBasePath+"/ServiceProviderConfig" || path.Clean(r.URL.Path) != r.URL.Path
 }
 
 func (a *API) limitSCIMInvalidToken(validate server.TokenValidator, lmt *limiter.Limiter) server.TokenValidator {

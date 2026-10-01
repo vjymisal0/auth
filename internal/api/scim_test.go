@@ -233,17 +233,18 @@ func TestSCIM(t *testing.T) {
 						api.handler.ServeHTTP(w, r)
 
 						require.Equal(t, http.StatusMethodNotAllowed, w.Code)
-						require.Equal(t, []string{http.MethodGet}, w.Header().Values("Allow"))
+						require.Equal(t, "GET, HEAD", w.Header().Get("Allow"))
+						require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
 					})
 				}
 			}
 
 			for _, tc := range []struct {
 				method, path string
-				allow        []string
+				allow        string
 			}{
-				{http.MethodPut, scimUsersPath, []string{http.MethodGet, http.MethodPost}},
-				{http.MethodPost, scimUsersPath + "/missing", []string{http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodDelete}},
+				{http.MethodPut, scimUsersPath, "GET, HEAD, POST"},
+				{http.MethodPost, scimUsersPath + "/missing", "DELETE, GET, HEAD, PATCH, PUT"},
 			} {
 				t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 					r := httptest.NewRequest(tc.method, tc.path, nil)
@@ -253,7 +254,8 @@ func TestSCIM(t *testing.T) {
 					api.handler.ServeHTTP(w, r)
 
 					require.Equal(t, http.StatusMethodNotAllowed, w.Code)
-					require.ElementsMatch(t, tc.allow, w.Header().Values("Allow"))
+					require.Equal(t, tc.allow, w.Header().Get("Allow"))
+					require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
 				})
 			}
 		})
@@ -455,17 +457,6 @@ func TestSCIMServer(t *testing.T) {
 				require.Equal(t, tc.challenge, w.Header().Get("WWW-Authenticate"))
 			})
 		}
-	})
-
-	t.Run("NotFound", func(t *testing.T) {
-		r := httptest.NewRequest(http.MethodGet, scimBasePath+"/Unknown", nil)
-		w := httptest.NewRecorder()
-
-		require.NoError(t, scimNotFound(w, r))
-
-		require.Equal(t, http.StatusNotFound, w.Code)
-		require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
-		require.JSONEq(t, scimFixture(t, "not_found.json"), w.Body.String())
 	})
 }
 

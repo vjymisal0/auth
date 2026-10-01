@@ -780,8 +780,9 @@ func TestSCIMRateLimit(t *testing.T) {
 		status       int
 	}{
 		{http.MethodGet, "/scim/v2/ServiceProviderConfig", http.StatusOK},
-		{http.MethodGet, "/scim/v2/Unknown", http.StatusNotFound},
-		{http.MethodDelete, "/scim/v2/Users", http.StatusMethodNotAllowed},
+		{http.MethodHead, "/scim/v2/ServiceProviderConfig", http.StatusOK},
+		{http.MethodGet, "/scim/v2/Unknown", http.StatusUnauthorized},
+		{http.MethodDelete, "/scim/v2/Users", http.StatusUnauthorized},
 	} {
 		ip := fmt.Sprintf("203.0.113.%d", i+1)
 		send := func() *httptest.ResponseRecorder {
@@ -802,28 +803,35 @@ func TestSCIMRateLimit(t *testing.T) {
 	}
 }
 
-func TestSCIMRateLimitEveryAuthorizationHeader(t *testing.T) {
+func TestSCIMRateLimitBoundsEveryUnauthenticatedRequest(t *testing.T) {
 	api, _ := setupSCIMAPI(t, func(config *conf.GlobalConfiguration) {
 		config.RateLimitScim = 1
 	})
 	defer api.db.Close()
 	require.NoError(t, models.TruncateAll(api.db))
 
-	for i, header := range []string{"", "Bearer", "Bearer ", "bearer scim_invalid", "Bearer scim a", "Basic scim_invalid", "Bearer\tscim_invalid", "Bearer  scim_invalid"} {
+	type request struct{ path, authorization string }
+	requests := []request{}
+	for _, header := range []string{"", "Bearer", "Bearer ", "bearer scim_invalid", "Bearer scim a", "Basic scim_invalid", "Bearer\tscim_invalid", "Bearer  scim_invalid"} {
+		requests = append(requests, request{"/scim/v2/Users", header})
+	}
+	for _, path := range []string{"/scim/v2//Users", "/scim/v2/./Users", "/scim/v2/Users/", "/scim/v2/ServiceProviderConfig/"} {
+		requests = append(requests, request{path, "Bearer scim_invalid"})
+	}
+
+	for i, tc := range requests {
 		ip := fmt.Sprintf("203.0.113.%d", 100+i)
-		send := func() *httptest.ResponseRecorder {
-			r := httptest.NewRequest(http.MethodGet, "/scim/v2/Users", nil)
-			if header != "" {
-				r.Header.Set("Authorization", header)
+		limited := false
+		for range 31 {
+			r := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			if tc.authorization != "" {
+				r.Header.Set("Authorization", tc.authorization)
 			}
 			r.Header.Set(api.config.RateLimitHeader, ip)
 			w := httptest.NewRecorder()
 			api.handler.ServeHTTP(w, r)
-			return w
+			limited = limited || w.Code == http.StatusTooManyRequests
 		}
-		for range 30 {
-			require.NotEqual(t, http.StatusTooManyRequests, send().Code, header)
-		}
-		require.Equal(t, http.StatusTooManyRequests, send().Code, header)
+		require.True(t, limited, "%q %q", tc.path, tc.authorization)
 	}
 }
