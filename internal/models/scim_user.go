@@ -29,6 +29,14 @@ func (SCIMUser) TableName() string {
 	return "scim_users"
 }
 
+type SCIMIdentityRename struct {
+	UserID   uuid.UUID
+	Provider string
+	From     string
+	To       string
+	Data     map[string]any
+}
+
 var scimUsersTable = scimTable{
 	name:     SCIMUser{}.TableName(),
 	label:    "SCIM user",
@@ -220,21 +228,21 @@ func IsSCIMUserDeprovisionedForUpdate(tx *storage.Connection, userID uuid.UUID) 
 	return len(rows) > 0, nil
 }
 
-func RenameSCIMIdentity(tx *storage.Connection, userID uuid.UUID, provider, from, to string, data map[string]any) error {
-	encoded, err := json.Marshal(data)
+func RenameSCIMIdentity(tx *storage.Connection, rename SCIMIdentityRename) error {
+	encoded, err := json.Marshal(rename.Data)
 	if err != nil {
 		return errors.Wrap(err, "error encoding identity data")
 	}
 	table := (&Identity{}).TableName()
 	if err := tx.RawQuery(
 		fmt.Sprintf("DELETE FROM %[1]q WHERE user_id = ? AND provider = ? AND provider_id <> ? AND (lower(provider_id) = lower(?) OR provider_id = ?) AND EXISTS (SELECT 1 FROM %[1]q WHERE user_id = ? AND provider = ? AND provider_id = ?)", table),
-		userID, provider, from, from, to, userID, provider, from,
+		rename.UserID, rename.Provider, rename.From, rename.From, rename.To, rename.UserID, rename.Provider, rename.From,
 	).Exec(); err != nil {
 		return errors.Wrap(err, "error removing stale SCIM identities")
 	}
 	count, err := tx.RawQuery(
 		fmt.Sprintf("UPDATE %q SET provider_id = ?, identity_data = identity_data || ?::jsonb, updated_at = now() WHERE user_id = ? AND provider = ? AND provider_id = ?", table),
-		to, string(encoded), userID, provider, from,
+		rename.To, string(encoded), rename.UserID, rename.Provider, rename.From,
 	).ExecWithCount()
 	if err != nil {
 		if isUniqueViolation(err) {

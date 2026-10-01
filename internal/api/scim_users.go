@@ -277,7 +277,13 @@ func (s *scimUserRepository) syncAuthUser(tx *storage.Connection, providerID uui
 		if email := scimUserEmail(user); email != "" {
 			data["email"] = email
 		}
-		err := models.RenameSCIMIdentity(tx, linked.ID, "sso:"+providerID.String(), from, user.UserName, data)
+		err := models.RenameSCIMIdentity(tx, models.SCIMIdentityRename{
+			UserID:   linked.ID,
+			Provider: "sso:" + providerID.String(),
+			From:     from,
+			To:       user.UserName,
+			Data:     data,
+		})
 		if errors.Is(err, models.SCIMIdentityNotFoundError{}) {
 			logrus.WithField("user_id", linked.ID).WithField("sso_provider_id", providerID).Warn("scim: SCIM identity not found, rename skipped")
 		} else if err != nil {
