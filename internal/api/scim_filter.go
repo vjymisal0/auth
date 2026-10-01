@@ -14,8 +14,10 @@ type scimEqFilter struct {
 }
 
 func (f scimEqFilter) Compare(attribute *protocol.Attribute, op filter.Operator, value any) (models.SCIMFilter, error) {
-	text, ok := value.(string)
-	if op != filter.OpEquals || attribute.Parent != nil || !ok {
+	text, isString := value.(string)
+	isEquals := op == filter.OpEquals
+	isTopLevel := attribute.Parent == nil
+	if !isEquals || !isTopLevel || !isString {
 		return f.unsupported()
 	}
 	switch attribute.Definition.Name {

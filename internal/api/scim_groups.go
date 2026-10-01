@@ -226,8 +226,8 @@ func (s *scimGroupRepository) auditMembers(tx *storage.Connection, r *http.Reque
 		action models.AuditAction
 		ids    []uuid.UUID
 	}{
-		{models.SCIMGroupMemberAddedAction, added},
-		{models.SCIMGroupMemberRemovedAction, removed},
+		{action: models.SCIMGroupMemberAddedAction, ids: added},
+		{action: models.SCIMGroupMemberRemovedAction, ids: removed},
 	} {
 		for _, id := range change.ids {
 			var userID *uuid.UUID

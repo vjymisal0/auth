@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	SCIMTokenMarker = "scim_"
+	scimTokenMarker = "scim_"
 
 	scimTokenBytes        = 20
-	scimTokenPrefixLength = len(SCIMTokenMarker) + 7
+	scimTokenPrefixLength = len(scimTokenMarker) + 7
 )
 
 type SCIMToken struct {
@@ -50,11 +50,6 @@ func (t *SCIMToken) IsRevoked() bool {
 	return t.RevokedAt != nil
 }
 
-func HashSCIMToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
-}
-
 func CreateSCIMToken(tx *storage.Connection, provider *SSOProvider, expiresAt *time.Time) (*SCIMToken, string, error) {
 	plaintext, err := generateSCIMToken()
 	if err != nil {
@@ -64,7 +59,7 @@ func CreateSCIMToken(tx *storage.Connection, provider *SSOProvider, expiresAt *t
 	token := &SCIMToken{
 		ID:            uuid.Must(uuid.NewV4()),
 		SSOProviderID: provider.ID,
-		TokenHash:     HashSCIMToken(plaintext),
+		TokenHash:     hashSCIMToken(plaintext),
 		Prefix:        plaintext[:scimTokenPrefixLength],
 		ExpiresAt:     expiresAt,
 	}
@@ -155,7 +150,7 @@ func AuthenticateSCIMToken(tx *storage.Connection, plaintext string) (*SCIMToken
 SELECT * FROM touched
 UNION ALL
 SELECT * FROM authenticated WHERE NOT EXISTS (SELECT 1 FROM touched)`, token.TableName(), SSOProvider{}.TableName(), SCIMSettings{}.TableName()),
-		HashSCIMToken(plaintext),
+		hashSCIMToken(plaintext),
 	).First(token)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -171,5 +166,10 @@ func generateSCIMToken() (string, error) {
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-	return SCIMTokenMarker + hex.EncodeToString(b), nil
+	return scimTokenMarker + hex.EncodeToString(b), nil
+}
+
+func hashSCIMToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
