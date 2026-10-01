@@ -56,14 +56,9 @@ func (a *API) adminSCIMTokensCreate(w http.ResponseWriter, r *http.Request) erro
 	db := a.db.WithContext(ctx)
 	provider := getSSOProvider(ctx)
 
-	params := &AdminSCIMTokenCreateParams{}
-	if body, err := utilities.GetBodyBytes(r); err != nil || len(body) > 0 {
-		if err := retrieveRequestParams(r, params); err != nil {
-			return err
-		}
-	}
-	if params.ExpiresAt != nil && !params.ExpiresAt.After(a.Now()) {
-		return apierrors.NewBadRequestError(apierrors.ErrorCodeValidationFailed, "expires_at must be in the future")
+	params, err := a.scimTokenCreateParams(r)
+	if err != nil {
+		return err
 	}
 
 	var (
@@ -112,20 +107,9 @@ func (a *API) adminSCIMTokensRevoke(w http.ResponseWriter, r *http.Request) erro
 
 	var token *models.SCIMToken
 	if err := db.Transaction(func(tx *storage.Connection) error {
-		if err := models.LockSCIMTokens(tx, provider.ID); err != nil {
-			return err
-		}
 		var err error
-		if token, err = models.FindSCIMTokenByPrefix(tx, provider.ID, chi.URLParam(r, "prefix")); err != nil {
-			return err
-		}
-		if token.IsRevoked() {
-			return nil
-		}
-		if err = token.Revoke(tx); err != nil {
-			return err
-		}
-		return a.auditSCIM(tx, r, getAdminUser(ctx), models.SCIMTokenRevokedAction, provider.ID, map[string]any{scimTokenPrefixTrait: token.Prefix})
+		token, err = a.revokeSCIMToken(tx, r, provider.ID, chi.URLParam(r, "prefix"))
+		return err
 	}); err != nil {
 		if models.IsNotFoundError(err) {
 			return apierrors.NewNotFoundError(apierrors.ErrorCodeSCIMTokenNotFound, "SCIM token not found")
@@ -134,6 +118,36 @@ func (a *API) adminSCIMTokensRevoke(w http.ResponseWriter, r *http.Request) erro
 	}
 
 	return sendJSON(w, http.StatusOK, token)
+}
+
+func (a *API) scimTokenCreateParams(r *http.Request) (*AdminSCIMTokenCreateParams, error) {
+	params := &AdminSCIMTokenCreateParams{}
+	if body, err := utilities.GetBodyBytes(r); err != nil || len(body) > 0 {
+		if err := retrieveRequestParams(r, params); err != nil {
+			return nil, err
+		}
+	}
+	if params.ExpiresAt != nil && !params.ExpiresAt.After(a.Now()) {
+		return nil, apierrors.NewBadRequestError(apierrors.ErrorCodeValidationFailed, "expires_at must be in the future")
+	}
+	return params, nil
+}
+
+func (a *API) revokeSCIMToken(tx *storage.Connection, r *http.Request, providerID uuid.UUID, prefix string) (*models.SCIMToken, error) {
+	if err := models.LockSCIMTokens(tx, providerID); err != nil {
+		return nil, err
+	}
+	token, err := models.FindSCIMTokenByPrefix(tx, providerID, prefix)
+	if err != nil {
+		return nil, err
+	}
+	if token.IsRevoked() {
+		return token, nil
+	}
+	if err := token.Revoke(tx); err != nil {
+		return nil, err
+	}
+	return token, a.auditSCIM(tx, r, getAdminUser(r.Context()), models.SCIMTokenRevokedAction, providerID, map[string]any{scimTokenPrefixTrait: token.Prefix})
 }
 
 func (a *API) changeSCIMEnabled(w http.ResponseWriter, r *http.Request, change func(*storage.Connection, uuid.UUID) (bool, error), action models.AuditAction, verb string) error {
