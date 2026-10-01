@@ -7,9 +7,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	"github.com/supabase/auth/internal/conf/confload"
 	"github.com/supabase/auth/internal/storage"
-	"github.com/supabase/auth/internal/storage/test"
 )
 
 type SCIMTokenTestSuite struct {
@@ -19,11 +17,7 @@ type SCIMTokenTestSuite struct {
 }
 
 func TestSCIMToken(t *testing.T) {
-	globalConfig, err := confload.LoadGlobal(modelsTestConfig)
-	require.NoError(t, err)
-	conn, err := test.SetupDBConnection(globalConfig)
-	require.NoError(t, err)
-	ts := &SCIMTokenTestSuite{db: conn}
+	ts := &SCIMTokenTestSuite{db: setupSCIMTestDB(t)}
 	defer ts.db.Close()
 	suite.Run(t, ts)
 }
@@ -35,14 +29,6 @@ func (ts *SCIMTokenTestSuite) SetupTest() {
 
 func (ts *SCIMTokenTestSuite) createProvider() *SSOProvider {
 	return createSCIMTestProvider(ts.T(), ts.db)
-}
-
-func createSCIMTestProvider(t require.TestingT, db *storage.Connection) *SSOProvider {
-	provider := &SSOProvider{}
-	require.NoError(t, db.Create(provider))
-	_, err := EnableSCIM(db, provider.ID)
-	require.NoError(t, err)
-	return provider
 }
 
 func (ts *SCIMTokenTestSuite) createToken(expiresAt *time.Time) (*SCIMToken, string) {

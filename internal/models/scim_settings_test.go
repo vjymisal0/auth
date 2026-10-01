@@ -7,9 +7,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	"github.com/supabase/auth/internal/conf/confload"
 	"github.com/supabase/auth/internal/storage"
-	"github.com/supabase/auth/internal/storage/test"
 )
 
 type SCIMSettingsTestSuite struct {
@@ -19,11 +17,7 @@ type SCIMSettingsTestSuite struct {
 }
 
 func TestSCIMSettings(t *testing.T) {
-	globalConfig, err := confload.LoadGlobal(modelsTestConfig)
-	require.NoError(t, err)
-	conn, err := test.SetupDBConnection(globalConfig)
-	require.NoError(t, err)
-	ts := &SCIMSettingsTestSuite{db: conn}
+	ts := &SCIMSettingsTestSuite{db: setupSCIMTestDB(t)}
 	defer ts.db.Close()
 	suite.Run(t, ts)
 }
