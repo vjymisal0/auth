@@ -150,32 +150,76 @@ func (ts *SCIMUsersTestSuite) TestLinkAccountKeepsUserSSO() {
 
 func (ts *SCIMUsersTestSuite) TestOldEmailCannotSignInAfterEmailChange() {
 	id := ts.create(ts.TokenA, oktaUser)
-	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, strings.Replace(oktaUser, `"value": "alice@example.com"`, `"value": "alice.smith@example.com"`, 1))
+	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, ts.withEmail("alice.smith@example.com"))
 	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 	user := ts.linkedUser(id)
-	require.Equal(ts.T(), "alice@example.com", user.GetEmail())
+	require.Equal(ts.T(), "alice.smith@example.com", user.GetEmail())
 
-	for _, req := range []struct{ path, body string }{
-		{"/recover", `{"email":"alice@example.com"}`},
-		{"/otp", `{"email":"alice@example.com","create_user":false}`},
-		{"/magiclink", `{"email":"alice@example.com"}`},
-		{"/token?grant_type=password", `{"email":"alice@example.com","password":"hunter2hunter2"}`},
-	} {
-		r := httptest.NewRequest(http.MethodPost, req.path, strings.NewReader(req.body))
-		r.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-		ts.API.handler.ServeHTTP(w, r)
-		require.NotContains(ts.T(), w.Body.String(), "access_token", req.path)
+	for _, email := range []string{"alice@example.com", "alice.smith@example.com"} {
+		for _, req := range []struct{ path, body string }{
+			{"/recover", `{"email":"` + email + `"}`},
+			{"/otp", `{"email":"` + email + `","create_user":false}`},
+			{"/magiclink", `{"email":"` + email + `"}`},
+			{"/token?grant_type=password", `{"email":"` + email + `","password":"hunter2hunter2"}`},
+		} {
+			r := httptest.NewRequest(http.MethodPost, req.path, strings.NewReader(req.body))
+			r.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			ts.API.handler.ServeHTTP(w, r)
+			require.NotContains(ts.T(), w.Body.String(), "access_token", req.path)
 
-		reloaded := ts.linkedUser(id)
-		require.Nil(ts.T(), reloaded.RecoverySentAt, req.path)
-		require.Empty(ts.T(), reloaded.RecoveryToken, req.path)
-		require.Empty(ts.T(), reloaded.ConfirmationToken, req.path)
-		count, err := ts.API.db.Q().Where("user_id = ?", user.ID).Count(&models.OneTimeToken{})
-		require.NoError(ts.T(), err)
-		require.Zero(ts.T(), count, req.path)
-		require.Zero(ts.T(), ts.sessions(user), req.path)
+			reloaded := ts.linkedUser(id)
+			require.Nil(ts.T(), reloaded.RecoverySentAt, req.path)
+			require.Empty(ts.T(), reloaded.RecoveryToken, req.path)
+			require.Empty(ts.T(), reloaded.ConfirmationToken, req.path)
+			count, err := ts.API.db.Q().Where("user_id = ?", user.ID).Count(&models.OneTimeToken{})
+			require.NoError(ts.T(), err)
+			require.Zero(ts.T(), count, req.path)
+			require.Zero(ts.T(), ts.sessions(user), req.path)
+		}
 	}
+}
+
+func (ts *SCIMUsersTestSuite) withEmail(email string) string {
+	return strings.Replace(oktaUser, `"value": "alice@example.com"`, `"value": "`+email+`"`, 1)
+}
+
+func (ts *SCIMUsersTestSuite) TestReplaceChangesEmail() {
+	id := ts.create(ts.TokenA, oktaUser)
+	user := ts.linkedUser(id)
+
+	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, ts.withEmail("Alice.Smith@example.com"))
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+
+	reloaded := ts.linkedUser(id)
+	require.Equal(ts.T(), "alice.smith@example.com", reloaded.GetEmail())
+	require.Equal(ts.T(), "Alice.Smith@example.com", reloaded.UserMetaData["email"])
+	identity, err := models.FindIdentityByIdAndProvider(ts.API.db, "Alice@Example.com", "sso:"+ts.A.ID.String())
+	require.NoError(ts.T(), err)
+	require.Equal(ts.T(), "Alice.Smith@example.com", identity.IdentityData["email"])
+
+	signedIn, err := ts.samlLogin(ts.A, "saml-name-id", "alice.smith@example.com")
+	require.NoError(ts.T(), err)
+	require.Equal(ts.T(), user.ID, signedIn.ID)
+}
+
+func (ts *SCIMUsersTestSuite) TestReplaceRejectsEmailTakenInProvider() {
+	id := ts.create(ts.TokenA, oktaUser)
+	ts.ssoUser(ts.A, "bob", "bob@example.com")
+
+	w, body := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, ts.withEmail("Bob@example.com"))
+	require.Equal(ts.T(), http.StatusConflict, w.Code, w.Body.String())
+	require.Equal(ts.T(), "uniqueness", body["scimType"])
+	require.Equal(ts.T(), "alice@example.com", ts.linkedUser(id).GetEmail())
+}
+
+func (ts *SCIMUsersTestSuite) TestReplaceAllowsEmailTakenInAnotherProvider() {
+	id := ts.create(ts.TokenA, oktaUser)
+	ts.ssoUser(ts.B, "bob", "bob@example.com")
+
+	w, _ := ts.do(ts.TokenA, http.MethodPut, "/Users/"+id, ts.withEmail("bob@example.com"))
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+	require.Equal(ts.T(), "bob@example.com", ts.linkedUser(id).GetEmail())
 }
 
 func (ts *SCIMUsersTestSuite) TestRemovingEmailsKeepsUserEmail() {

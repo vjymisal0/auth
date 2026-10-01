@@ -37,6 +37,13 @@ type SCIMIdentityRename struct {
 	Data     map[string]any
 }
 
+type SCIMIdentityEmailChange struct {
+	UserID   uuid.UUID
+	Provider string
+	Subject  string
+	Email    string
+}
+
 var scimUsersTable = scimTable{
 	name:       SCIMUser{}.TableName(),
 	label:      "SCIM user",
@@ -252,6 +259,33 @@ func RenameSCIMIdentity(tx *storage.Connection, rename SCIMIdentityRename) error
 	}
 	if count == 0 {
 		return SCIMIdentityNotFoundError{}
+	}
+	return nil
+}
+
+func ChangeSCIMIdentityEmail(tx *storage.Connection, change SCIMIdentityEmailChange) error {
+	table := Identity{}.TableName()
+	taken := struct {
+		Exists bool `db:"exists"`
+	}{}
+	if err := tx.RawQuery(
+		fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %q WHERE provider = ? AND email = lower(?) AND user_id <> ?) AS exists", table),
+		change.Provider, change.Email, change.UserID,
+	).First(&taken); err != nil {
+		return errors.Wrap(err, "error finding SCIM identity email")
+	}
+	if taken.Exists {
+		return SCIMUserConflictError{}
+	}
+	encoded, err := json.Marshal(map[string]any{"email": change.Email})
+	if err != nil {
+		return errors.Wrap(err, "error encoding identity data")
+	}
+	if err := tx.RawQuery(
+		fmt.Sprintf("UPDATE %q SET identity_data = identity_data || ?::jsonb, updated_at = now() WHERE user_id = ? AND provider = ? AND provider_id = ?", table),
+		string(encoded), change.UserID, change.Provider, change.Subject,
+	).Exec(); err != nil {
+		return errors.Wrap(err, "error changing SCIM identity email")
 	}
 	return nil
 }

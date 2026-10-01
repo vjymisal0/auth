@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/badoux/checkmail"
 	"github.com/gofrs/uuid"
@@ -292,6 +293,9 @@ func (s *scimUserRepository) syncAuthUser(tx *storage.Connection, change scimUse
 	if err := s.renameIdentity(tx, change, old); err != nil {
 		return nil, err
 	}
+	if err := s.changeEmail(tx, change, linked); err != nil {
+		return nil, err
+	}
 	if old.Active && !row.Active {
 		return nil, models.LogoutSCIMUser(tx, linked.ID)
 	}
@@ -434,6 +438,25 @@ func (s *scimUserRepository) renameIdentity(tx *storage.Connection, change scimU
 		return nil
 	}
 	return err
+}
+
+func (s *scimUserRepository) changeEmail(tx *storage.Connection, change scimUserChange, linked *models.User) error {
+	email := scimUserEmail(change.user)
+	if email == "" || strings.EqualFold(email, linked.GetEmail()) {
+		return nil
+	}
+	if err := models.ChangeSCIMIdentityEmail(tx, models.SCIMIdentityEmailChange{
+		UserID:   linked.ID,
+		Provider: scimProviderType(change.target.ProviderID),
+		Subject:  change.user.UserName,
+		Email:    email,
+	}); err != nil {
+		return err
+	}
+	if err := linked.SetEmail(tx, strings.ToLower(email)); err != nil {
+		return err
+	}
+	return linked.UpdateUserMetaData(tx, map[string]any{"email": email})
 }
 
 func (s *scimUserRepository) audit(tx *storage.Connection, r *http.Request, action models.AuditAction, row *models.SCIMUser) error {
