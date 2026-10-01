@@ -220,10 +220,7 @@ func IsSCIMUserDeprovisionedByProvider(tx *storage.Connection, providerID, userI
 	).First(&result); err != nil {
 		return false, errors.Wrap(err, "error finding SCIM user")
 	}
-	if !result.AnyRow {
-		return false, nil
-	}
-	return !result.Live, nil
+	return result.AnyRow && !result.Live, nil
 }
 
 func IsSCIMUserDeprovisionedForUpdate(tx *storage.Connection, userID uuid.UUID) (bool, error) {

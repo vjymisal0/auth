@@ -69,7 +69,8 @@ func findSCIMPage[T any](tx *storage.Connection, table scimTable, providerID uui
 		).All(&rows); err != nil {
 			return nil, 0, errors.Wrapf(err, "error finding %ss", table.label)
 		}
-		if len(rows) < query.Limit && (query.Offset == 0 || len(rows) > 0) {
+		lastPage := len(rows) < query.Limit && (query.Offset == 0 || len(rows) > 0)
+		if lastPage {
 			return rows, query.Offset + len(rows), nil
 		}
 	}

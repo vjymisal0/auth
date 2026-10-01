@@ -96,14 +96,14 @@ func (ts *SCIMGroupTestSuite) TestFindGroupsFiltersAndSorts() {
 func (ts *SCIMGroupTestSuite) TestReplaceChecksVersion() {
 	group := ts.createGroup(ts.provider.ID, "Engineering")
 
-	replaced, err := ReplaceSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID, UpdatedAt: &group.UpdatedAt}, []byte(`{"displayName":"Platform"}`))
+	replaced, err := replaceSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID, UpdatedAt: &group.UpdatedAt}, []byte(`{"displayName":"Platform"}`))
 	require.NoError(ts.T(), err)
 	require.Equal(ts.T(), "platform", replaced.DisplayName)
 
-	_, err = ReplaceSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID, UpdatedAt: &group.UpdatedAt}, []byte(`{"displayName":"Stale"}`))
+	_, err = replaceSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID, UpdatedAt: &group.UpdatedAt}, []byte(`{"displayName":"Stale"}`))
 	require.ErrorIs(ts.T(), err, SCIMGroupStaleError{})
 
-	_, err = ReplaceSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.createProvider().ID, ID: group.ID}, []byte(`{"displayName":"Other"}`))
+	_, err = replaceSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.createProvider().ID, ID: group.ID}, []byte(`{"displayName":"Other"}`))
 	require.ErrorIs(ts.T(), err, SCIMGroupNotFoundError{})
 }
 
@@ -111,7 +111,7 @@ func (ts *SCIMGroupTestSuite) TestEachWriteInATransactionGetsANewVersion() {
 	group := ts.createGroup(ts.provider.ID, "Engineering")
 
 	require.NoError(ts.T(), ts.db.Transaction(func(tx *storage.Connection) error {
-		replaced, err := ReplaceSCIMGroup(tx, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID}, []byte(`{"displayName":"Platform"}`))
+		replaced, err := replaceSCIMGroup(tx, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID}, []byte(`{"displayName":"Platform"}`))
 		require.NoError(ts.T(), err)
 		touched, err := TouchSCIMGroup(tx, replaced)
 		require.NoError(ts.T(), err)
@@ -143,7 +143,7 @@ func (ts *SCIMGroupTestSuite) TestVersionedWriteToMissingRowIsNotFound() {
 	group := ts.createGroup(ts.provider.ID, "Engineering")
 	alice := ts.createUser(ts.provider.ID, "alice")
 
-	_, err := ReplaceSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.createProvider().ID, ID: group.ID, UpdatedAt: &group.UpdatedAt}, []byte(`{"displayName":"Other"}`))
+	_, err := replaceSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.createProvider().ID, ID: group.ID, UpdatedAt: &group.UpdatedAt}, []byte(`{"displayName":"Other"}`))
 	require.ErrorIs(ts.T(), err, SCIMGroupNotFoundError{})
 
 	_, err = DeleteSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID})

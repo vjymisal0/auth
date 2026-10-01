@@ -19,6 +19,8 @@ const (
 
 	scimTokenBytes        = 20
 	scimTokenPrefixLength = len(scimTokenMarker) + 7
+
+	activeSCIMTokenClause = "revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())" // #nosec G101
 )
 
 type SCIMToken struct {
@@ -48,6 +50,19 @@ func (t *SCIMToken) AfterFind(*pop.Connection) error {
 
 func (t *SCIMToken) IsRevoked() bool {
 	return t.RevokedAt != nil
+}
+
+func (t *SCIMToken) Revoke(tx *storage.Connection) error {
+	if t.IsRevoked() {
+		return nil
+	}
+	if err := tx.RawQuery(
+		fmt.Sprintf("UPDATE %q SET revoked_at = now() WHERE id = ? RETURNING *", t.TableName()),
+		t.ID,
+	).First(t); err != nil {
+		return errors.Wrap(err, "error revoking SCIM token")
+	}
+	return nil
 }
 
 func CreateSCIMToken(tx *storage.Connection, provider *SSOProvider, expiresAt *time.Time) (*SCIMToken, string, error) {
@@ -83,8 +98,6 @@ func FindSCIMTokensBySSOProvider(tx *storage.Connection, providerID uuid.UUID) (
 	return tokens, nil
 }
 
-const activeSCIMTokenClause = "revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())" // #nosec G101
-
 func FindActiveSCIMTokensBySSOProvider(tx *storage.Connection, providerID uuid.UUID) ([]SCIMToken, error) {
 	tokens := []SCIMToken{}
 	if err := tx.Q().Where("sso_provider_id = ? AND "+activeSCIMTokenClause, providerID).Order("created_at asc, id asc").All(&tokens); err != nil {
@@ -114,19 +127,6 @@ func FindSCIMTokenByPrefix(tx *storage.Connection, providerID uuid.UUID, prefix 
 	default:
 		return nil, errors.Errorf("error finding SCIM token: prefix %q is ambiguous", prefix)
 	}
-}
-
-func (t *SCIMToken) Revoke(tx *storage.Connection) error {
-	if t.IsRevoked() {
-		return nil
-	}
-	if err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET revoked_at = now() WHERE id = ? RETURNING *", t.TableName()),
-		t.ID,
-	).First(t); err != nil {
-		return errors.Wrap(err, "error revoking SCIM token")
-	}
-	return nil
 }
 
 func AuthenticateSCIMToken(tx *storage.Connection, plaintext string) (*SCIMToken, error) {

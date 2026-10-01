@@ -1,9 +1,9 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
-	"github.com/pkg/errors"
 	"github.com/supabase-community/scim-go/pkg/scimerrors"
 	"github.com/supabase/auth/internal/api/apierrors"
 	"github.com/supabase/auth/internal/models"

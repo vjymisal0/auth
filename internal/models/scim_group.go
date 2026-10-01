@@ -73,10 +73,6 @@ func LockSCIMGroup(tx *storage.Connection, target SCIMTarget) (*SCIMGroup, error
 	return lockSCIMRow[SCIMGroup](tx, scimGroupsTable, target)
 }
 
-func ReplaceSCIMGroup(tx *storage.Connection, target SCIMTarget, resource []byte) (*SCIMGroup, error) {
-	return replaceSCIMRow[SCIMGroup](tx, scimGroupsTable, target, resource)
-}
-
 func ReplaceSCIMGroupIfChanged(tx *storage.Connection, target SCIMTarget, resource []byte) (*SCIMGroup, bool, error) {
 	return replaceSCIMRowIfChanged[SCIMGroup](tx, scimGroupsTable, target, resource)
 }
@@ -198,6 +194,10 @@ func RemoveSCIMUserFromGroups(tx *storage.Connection, scimUserID uuid.UUID) ([]u
 		}
 	}
 	return groupIDs, nil
+}
+
+func replaceSCIMGroup(tx *storage.Connection, target SCIMTarget, resource []byte) (*SCIMGroup, error) {
+	return replaceSCIMRow[SCIMGroup](tx, scimGroupsTable, target, resource)
 }
 
 func lockLiveSCIMUserIDs(tx *storage.Connection, providerID uuid.UUID, ids []uuid.UUID) ([]uuid.UUID, error) {
