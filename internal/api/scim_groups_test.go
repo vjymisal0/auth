@@ -86,8 +86,7 @@ func (ts *SCIMTestSuite) TestGroupsLifecycle() {
 	require.ElementsMatch(ts.T(), []string{alice, bob}, memberValues(patched))
 	require.Equal(ts.T(), "Platform", patched["displayName"])
 
-	w, patched = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"remove","path":"members[value eq \"`+bob+`\"]"}`))
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+	patched = ts.patchMembers(id, `{"op":"remove","path":"members[value eq \"`+bob+`\"]"}`)
 	require.Equal(ts.T(), []string{alice}, memberValues(patched))
 
 	w, got := ts.do(ts.TokenA, http.MethodGet, "/Groups/"+id, "")
@@ -186,9 +185,8 @@ func (ts *SCIMTestSuite) TestGroupMemberEventsCarryUserID() {
 	}
 	entries := ts.auditDuring(func() {
 		id := ts.createGroup(ts.TokenA, groupWith("Engineering", "", alice, bob))
-		w, _ := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"remove","path":"members[value eq \"`+alice+`\"]"}`))
-		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
-		w, _ = ts.do(ts.TokenA, http.MethodDelete, "/Users/"+bob, "")
+		ts.patchMembers(id, `{"op":"remove","path":"members[value eq \"`+alice+`\"]"}`)
+		w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+bob, "")
 		require.Equal(ts.T(), http.StatusNoContent, w.Code, w.Body.String())
 	})
 
@@ -252,8 +250,7 @@ func (ts *SCIMTestSuite) TestPatchRemoveAbsentMember() {
 	id := ts.createGroup(ts.TokenA, groupWith("Engineering", "", alice))
 	before := len(ts.auditActions(models.SCIMGroupMemberRemovedAction))
 
-	w, got := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"remove","path":"members[value eq \"`+bob+`\"]"}`))
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+	got := ts.patchMembers(id, `{"op":"remove","path":"members[value eq \"`+bob+`\"]"}`)
 	require.Equal(ts.T(), []string{alice}, memberValues(got))
 	require.Len(ts.T(), ts.auditActions(models.SCIMGroupMemberRemovedAction), before)
 }
@@ -279,8 +276,7 @@ func (ts *SCIMTestSuite) TestPatchRejectsRemoveWithValue() {
 	require.Equal(ts.T(), http.StatusOK, w.Code)
 	require.NotEmpty(ts.T(), got["emails"])
 
-	w, got = ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"remove","path":"members[value eq \"`+bob+`\"]","value":null}`))
-	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+	got = ts.patchMembers(id, `{"op":"remove","path":"members[value eq \"`+bob+`\"]","value":null}`)
 	require.Equal(ts.T(), []string{alice}, memberValues(got))
 }
 
@@ -424,8 +420,7 @@ func (ts *SCIMTestSuite) TestGroupsKeepDeactivatedMembers() {
 		w, _ := ts.do(ts.TokenA, http.MethodPatch, "/Users/"+alice, patchOp(`{"op":"replace","path":"active","value":false}`))
 		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 
-		w, got := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(`{"op":"add","path":"members","value":[{"value":"`+bob+`"}]}`))
-		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+		got := ts.patchMembers(id, `{"op":"add","path":"members","value":[{"value":"`+bob+`"}]}`)
 		require.ElementsMatch(ts.T(), []string{alice, bob}, memberValues(got))
 
 		w, user := ts.do(ts.TokenA, http.MethodGet, "/Users/"+alice, "")
@@ -644,8 +639,17 @@ func (ts *SCIMTestSuite) TestWriteResponseMembersMatchGet() {
 		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 		require.Equal(ts.T(), got["members"], written["members"])
 	}
-	requireMatchesGet(http.MethodPatch, patchOp(`{"op":"add","path":"members","value":[{"value":"`+ids[3]+`"},{"value":"`+ids[1]+`"}]}`))
-	requireMatchesGet(http.MethodPatch, patchOp(`{"op":"remove","path":"members[value eq \"`+ids[2]+`\"]"}`))
+	requireMatchesGet(http.MethodPatch, patchOp(`{"op":"add","path":"members","value":[{"value":"`+ids[3]+`"},{"value":"`+ids[1]+`"}]}`, `{"op":"replace","path":"displayName","value":"Platform"}`))
+	requireMatchesGet(http.MethodPatch, patchOp(`{"op":"remove","path":"members[value eq \"`+ids[2]+`\"]"}`, `{"op":"replace","path":"displayName","value":"Engineering"}`))
 	requireMatchesGet(http.MethodPut, groupWith("Engineering", "", ids[1], ids[2], ids[3]))
 	requireMatchesGet(http.MethodPatch, patchOp(`{"op":"replace","path":"displayName","value":"Platform"}`))
+}
+
+func (ts *SCIMTestSuite) patchMembers(id string, ops ...string) map[string]any {
+	w, _ := ts.do(ts.TokenA, http.MethodPatch, "/Groups/"+id, patchOp(ops...))
+	require.Equal(ts.T(), http.StatusNoContent, w.Code, w.Body.String())
+	require.Empty(ts.T(), w.Body.String())
+	w, got := ts.do(ts.TokenA, http.MethodGet, "/Groups/"+id, "")
+	require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
+	return got
 }

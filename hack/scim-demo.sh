@@ -114,8 +114,8 @@ call 201 POST "$SCIM/Groups" "$SCIM_TOKEN" "$(jq -n --arg n "Tour Guides $RUN" -
   members: [{value: $m}]
 }')"
 GROUP="$(field .id)"
-call 200 PATCH "$SCIM/Groups/$GROUP" "$SCIM_TOKEN" "$(patch "{\"op\": \"add\", \"path\": \"members\", \"value\": [{\"value\": \"$OTHER\"}]}")"
-call 200 PATCH "$SCIM/Groups/$GROUP" "$SCIM_TOKEN" "$(patch "{\"op\": \"remove\", \"path\": \"members[value eq \\\"$USER\\\"]\"}")"
+call 204 PATCH "$SCIM/Groups/$GROUP" "$SCIM_TOKEN" "$(patch "{\"op\": \"add\", \"path\": \"members\", \"value\": [{\"value\": \"$OTHER\"}]}")"
+call 204 PATCH "$SCIM/Groups/$GROUP" "$SCIM_TOKEN" "$(patch "{\"op\": \"remove\", \"path\": \"members[value eq \\\"$USER\\\"]\"}")"
 call 200 GET "$SCIM/Groups/$GROUP" "$SCIM_TOKEN"
 
 section "Errors"
