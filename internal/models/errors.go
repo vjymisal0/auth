@@ -9,12 +9,18 @@ import (
 // sentinel error for all not found errors.
 var errNotFound = errors.New("not found")
 
+var errStale = errors.New("stale")
+
 // sentinel error for unique constraint violations.
 var errUniqueConstraintViolated = errors.New("unique constraint violated")
 
 // IsNotFoundError returns whether an error represents a "not found" error.
 func IsNotFoundError(err error) bool {
 	return errors.Is(err, errNotFound)
+}
+
+func IsStaleError(err error) bool {
+	return errors.Is(err, errStale)
 }
 
 type SessionNotFoundError struct{}
@@ -248,6 +254,10 @@ func (e SCIMUserStaleError) Error() string {
 	return "SCIM user has changed since it was read"
 }
 
+func (e SCIMUserStaleError) Is(target error) bool {
+	return target == errStale
+}
+
 type SCIMUserConflictError struct{}
 
 func (e SCIMUserConflictError) Error() string {
@@ -280,6 +290,10 @@ type SCIMGroupStaleError struct{}
 
 func (e SCIMGroupStaleError) Error() string {
 	return "SCIM group has changed since it was read"
+}
+
+func (e SCIMGroupStaleError) Is(target error) bool {
+	return target == errStale
 }
 
 type SCIMGroupConflictError struct{}

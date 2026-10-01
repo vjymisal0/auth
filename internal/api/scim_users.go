@@ -265,10 +265,7 @@ func (s *scimUserRepository) lockForReplace(tx *storage.Connection, target model
 
 func (s *scimUserRepository) replaceRow(tx *storage.Connection, target models.SCIMTarget, old *models.SCIMUser, resource []byte) (*models.SCIMUser, bool, error) {
 	if old.UserID != nil {
-		unchanged, err := models.FindUnchangedSCIMUser(tx, target, resource)
-		if err != nil || unchanged != nil {
-			return unchanged, false, err
-		}
+		return models.ReplaceSCIMUserIfChanged(tx, target, resource)
 	}
 	row, err := models.ReplaceSCIMUser(tx, target, resource)
 	return row, err == nil, err

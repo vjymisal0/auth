@@ -36,34 +36,36 @@ func (s *scimUserRepository) linkAuthUser(tx *storage.Connection, row *models.SC
 		return nil, false, err
 	}
 
-	linked := decision.User
+	linked, isNew := decision.User, false
 	switch decision.Decision {
-	case models.AccountExists:
+	case models.AccountExists, models.LinkAccount:
 		if err = scimRequireSSOUser(linked); err != nil {
 			return nil, false, err
 		}
-	case models.LinkAccount:
-		if err = scimRequireSSOUser(linked); err != nil {
-			return nil, false, err
-		}
-		if _, err = s.api.createNewIdentity(tx, linked, providerType, scimIdentityData(user)); err != nil {
-			return nil, false, err
-		}
-		if err = linked.UpdateAppMetaDataProviders(tx); err != nil {
-			return nil, false, err
+		if decision.Decision == models.LinkAccount {
+			if err = s.linkIdentity(tx, linked, providerType, user); err != nil {
+				return nil, false, err
+			}
 		}
 	case models.CreateAccount:
 		if linked, err = s.createAuthUser(tx, providerType, decision, user); err != nil {
 			return nil, false, err
 		}
-		return linked, true, models.LinkSCIMUser(tx, row, linked.ID)
+		isNew = true
 	case models.MultipleAccounts:
 		return nil, false, scimerrors.ErrUniqueness("multiple users share this email in the SSO provider")
 	default:
 		return nil, false, apierrors.NewInternalServerError("Unknown automatic linking decision: %v", decision.Decision)
 	}
 
-	return linked, false, models.LinkSCIMUser(tx, row, linked.ID)
+	return linked, isNew, models.LinkSCIMUser(tx, row, linked.ID)
+}
+
+func (s *scimUserRepository) linkIdentity(tx *storage.Connection, linked *models.User, providerType string, user *core.User) error {
+	if _, err := s.api.createNewIdentity(tx, linked, providerType, scimIdentityData(user)); err != nil {
+		return err
+	}
+	return linked.UpdateAppMetaDataProviders(tx)
 }
 
 func scimRequireSSOUser(linked *models.User) error {

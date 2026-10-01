@@ -111,12 +111,7 @@ func (a *API) adminSCIMTokensCreate(w http.ResponseWriter, r *http.Request) erro
 		if token, plaintext, err = models.CreateSCIMToken(tx, provider, params.ExpiresAt); err != nil {
 			return err
 		}
-		return a.auditSCIM(tx, r, scimAuditEvent{
-			actor:      getAdminUser(ctx),
-			action:     models.SCIMTokenCreatedAction,
-			providerID: provider.ID,
-			traits:     map[string]any{scimTokenPrefixTrait: token.Prefix},
-		})
+		return a.auditSCIM(tx, r, scimTokenAudit(getAdminUser(ctx), models.SCIMTokenCreatedAction, token))
 	}); err != nil {
 		if errors.Is(err, models.SCIMTokenExpiryError{}) {
 			return apierrors.NewBadRequestError(apierrors.ErrorCodeValidationFailed, "expires_at must be in the future")
@@ -190,12 +185,7 @@ func (a *API) revokeSCIMToken(tx *storage.Connection, r *http.Request, providerI
 	if err := token.Revoke(tx); err != nil {
 		return nil, err
 	}
-	return token, a.auditSCIM(tx, r, scimAuditEvent{
-		actor:      getAdminUser(r.Context()),
-		action:     models.SCIMTokenRevokedAction,
-		providerID: providerID,
-		traits:     map[string]any{scimTokenPrefixTrait: token.Prefix},
-	})
+	return token, a.auditSCIM(tx, r, scimTokenAudit(getAdminUser(r.Context()), models.SCIMTokenRevokedAction, token))
 }
 
 func (a *API) sendSCIMStatus(w http.ResponseWriter, db *storage.Connection, provider *models.SSOProvider) error {
@@ -263,16 +253,20 @@ func (a *API) revokeActiveSCIMTokens(tx *storage.Connection, r *http.Request, ac
 		if err := tokens[i].Revoke(tx); err != nil {
 			return nil, err
 		}
-		if err := a.auditSCIM(tx, r, scimAuditEvent{
-			actor:      actor,
-			action:     models.SCIMTokenRevokedAction,
-			providerID: providerID,
-			traits:     map[string]any{scimTokenPrefixTrait: tokens[i].Prefix},
-		}); err != nil {
+		if err := a.auditSCIM(tx, r, scimTokenAudit(actor, models.SCIMTokenRevokedAction, &tokens[i])); err != nil {
 			return nil, err
 		}
 	}
 	return prefixes, nil
+}
+
+func scimTokenAudit(actor *models.User, action models.AuditAction, token *models.SCIMToken) scimAuditEvent {
+	return scimAuditEvent{
+		actor:      actor,
+		action:     action,
+		providerID: token.SSOProviderID,
+		traits:     map[string]any{scimTokenPrefixTrait: token.Prefix},
+	}
 }
 
 func (a *API) auditSCIMDisabled(tx *storage.Connection, r *http.Request, providerID uuid.UUID, prefixes []string) error {

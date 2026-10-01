@@ -64,12 +64,7 @@ func (s *scimGroupRepository) Replace(ctx context.Context, group *core.Group) (*
 		return nil, err
 	}
 	return s.save(ctx, models.SCIMGroupUpdatedAction, group, func(tx *storage.Connection, resource []byte) (*models.SCIMGroup, bool, error) {
-		unchanged, err := models.FindUnchangedSCIMGroup(tx, target, resource)
-		if err != nil || unchanged != nil {
-			return unchanged, false, err
-		}
-		row, err := models.ReplaceSCIMGroup(tx, target, resource)
-		return row, true, err
+		return models.ReplaceSCIMGroupIfChanged(tx, target, resource)
 	})
 }
 

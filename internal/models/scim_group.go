@@ -71,8 +71,8 @@ func ReplaceSCIMGroup(tx *storage.Connection, target SCIMTarget, resource []byte
 	return replaceSCIMRow[SCIMGroup](tx, scimGroupsTable, target, resource)
 }
 
-func FindUnchangedSCIMGroup(tx *storage.Connection, target SCIMTarget, resource []byte) (*SCIMGroup, error) {
-	return findUnchangedSCIMRow[SCIMGroup](tx, scimGroupsTable, target, resource)
+func ReplaceSCIMGroupIfChanged(tx *storage.Connection, target SCIMTarget, resource []byte) (*SCIMGroup, bool, error) {
+	return replaceSCIMRowIfChanged[SCIMGroup](tx, scimGroupsTable, target, resource)
 }
 
 func TouchSCIMGroup(tx *storage.Connection, group *SCIMGroup) (*SCIMGroup, error) {
@@ -89,7 +89,7 @@ func TouchSCIMGroup(tx *storage.Connection, group *SCIMGroup) (*SCIMGroup, error
 func DeleteSCIMGroup(tx *storage.Connection, target SCIMTarget) (*SCIMGroup, error) {
 	group := &SCIMGroup{}
 	err := tx.RawQuery(
-		fmt.Sprintf("DELETE FROM %q WHERE id = ? AND sso_provider_id = ? AND "+scimVersionClause+" RETURNING "+scimGroupColumns, scimGroupsTable.tableName),
+		fmt.Sprintf("DELETE FROM %q WHERE %s AND "+scimVersionClause+" RETURNING %s", scimGroupsTable.tableName, scimGroupsTable.targetClause(), scimGroupsTable.columns),
 		target.ID, target.ProviderID, target.UpdatedAt, target.UpdatedAt,
 	).First(group)
 	if err != nil {

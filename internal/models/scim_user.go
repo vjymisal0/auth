@@ -67,8 +67,8 @@ func FindSCIMUserForUpdate(tx *storage.Connection, providerID, id uuid.UUID) (*S
 	return findSCIMRow[SCIMUser](tx, scimUsersTable, SCIMTarget{ProviderID: providerID, ID: id}, true)
 }
 
-func FindUnchangedSCIMUser(tx *storage.Connection, target SCIMTarget, resource []byte) (*SCIMUser, error) {
-	return findUnchangedSCIMRow[SCIMUser](tx, scimUsersTable, target, resource)
+func ReplaceSCIMUserIfChanged(tx *storage.Connection, target SCIMTarget, resource []byte) (*SCIMUser, bool, error) {
+	return replaceSCIMRowIfChanged[SCIMUser](tx, scimUsersTable, target, resource)
 }
 
 func FindSCIMUsers(tx *storage.Connection, providerID uuid.UUID, query SCIMQuery) ([]SCIMUser, int, error) {
@@ -82,7 +82,7 @@ func ReplaceSCIMUser(tx *storage.Connection, target SCIMTarget, resource []byte)
 func DeleteSCIMUser(tx *storage.Connection, target SCIMTarget) (*SCIMUser, error) {
 	user := &SCIMUser{}
 	err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET deleted_at = now(), updated_at = now() WHERE id = ? AND sso_provider_id = ? AND deleted_at IS NULL AND "+scimVersionClause+" RETURNING "+scimUserColumns, scimUsersTable.tableName),
+		fmt.Sprintf("UPDATE %q SET deleted_at = now(), updated_at = now() WHERE %s AND "+scimVersionClause+" RETURNING %s", scimUsersTable.tableName, scimUsersTable.targetClause(), scimUsersTable.columns),
 		target.ID, target.ProviderID, target.UpdatedAt, target.UpdatedAt,
 	).First(user)
 	if err != nil {

@@ -62,7 +62,7 @@ func findSCIMPage[T any](tx *storage.Connection, table scimTable, providerID uui
 	where, args := table.where(providerID, query.Filter)
 	total, err := tx.Q().Where(where, args...).Count(new(T))
 	if err != nil {
-		return nil, 0, errors.Wrapf(err, "error counting %s", table.tableName)
+		return nil, 0, errors.Wrapf(err, "error counting %ss", table.label)
 	}
 	rows := []T{}
 	if query.Limit <= 0 || query.Offset >= total {
@@ -72,7 +72,7 @@ func findSCIMPage[T any](tx *storage.Connection, table scimTable, providerID uui
 		fmt.Sprintf("SELECT %s FROM %q WHERE %s ORDER BY %s OFFSET ? LIMIT ?", table.columns, table.tableName, where, table.orderBy(query.Order)),
 		append(args, query.Offset, query.Limit)...,
 	).All(&rows); err != nil {
-		return nil, 0, errors.Wrapf(err, "error finding %s", table.tableName)
+		return nil, 0, errors.Wrapf(err, "error finding %ss", table.label)
 	}
 	return rows, total, nil
 }
@@ -115,6 +115,15 @@ func findUnchangedSCIMRow[T any](tx *storage.Connection, table scimTable, target
 		return nil, table.wrapError(err, "finding")
 	}
 	return row, nil
+}
+
+func replaceSCIMRowIfChanged[T any](tx *storage.Connection, table scimTable, target SCIMTarget, resource []byte) (*T, bool, error) {
+	unchanged, err := findUnchangedSCIMRow[T](tx, table, target, resource)
+	if err != nil || unchanged != nil {
+		return unchanged, false, err
+	}
+	row, err := replaceSCIMRow[T](tx, table, target, resource)
+	return row, err == nil, err
 }
 
 func replaceSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarget, resource []byte) (*T, error) {
