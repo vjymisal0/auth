@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
@@ -16,9 +15,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
-	"github.com/stretchr/testify/suite"
 	"github.com/supabase-community/scim-go/pkg/core"
 	"github.com/supabase-community/scim-go/pkg/protocol"
 	"github.com/supabase-community/scim-go/pkg/scimerrors"
@@ -40,105 +37,6 @@ const oktaUser = `{
 	"password": "hunter2hunter2",
 	"active": true
 }`
-
-type SCIMUsersTestSuite struct {
-	suite.Suite
-	API    *API
-	TokenA string
-	TokenB string
-	A      *models.SSOProvider
-	B      *models.SSOProvider
-}
-
-func TestSCIMUsers(t *testing.T) {
-	api, _ := setupSCIMAPI(t, func(config *conf.GlobalConfiguration) {
-		config.RateLimitScim = 1_000_000
-	})
-	defer api.db.Close()
-
-	suite.Run(t, &SCIMUsersTestSuite{API: api})
-}
-
-func (ts *SCIMUsersTestSuite) SetupTest() {
-	require.NoError(ts.T(), models.TruncateAll(ts.API.db))
-	ts.A, ts.TokenA = ts.provider()
-	ts.B, ts.TokenB = ts.provider()
-}
-
-func (ts *SCIMUsersTestSuite) provider() (*models.SSOProvider, string) {
-	return createSSOProviderWithSCIMToken(ts.T(), ts.API.db)
-}
-
-func setupSCIMAPI(t *testing.T, tweak func(*conf.GlobalConfiguration)) (*API, *conf.GlobalConfiguration) {
-	api, config, err := setupAPIForTestWithCallback(func(config *conf.GlobalConfiguration, conn *storage.Connection) {
-		if config != nil {
-			config.SSO.SCIM.Enabled = true
-			if tweak != nil {
-				tweak(config)
-			}
-		}
-	})
-	require.NoError(t, err)
-	return api, config
-}
-
-func createSSOProvider(t require.TestingT, db *storage.Connection) *models.SSOProvider {
-	provider := &models.SSOProvider{}
-	require.NoError(t, db.Create(provider))
-	return provider
-}
-
-func createSCIMEnabledProvider(t require.TestingT, db *storage.Connection) *models.SSOProvider {
-	provider := createSSOProvider(t, db)
-	_, err := models.EnableSCIM(db, provider.ID)
-	require.NoError(t, err)
-	return provider
-}
-
-func createSSOProviderWithSCIMToken(t require.TestingT, db *storage.Connection) (*models.SSOProvider, string) {
-	provider := createSCIMEnabledProvider(t, db)
-	_, token, err := models.CreateSCIMToken(db, provider, nil)
-	require.NoError(t, err)
-	return provider, token
-}
-
-func adminJWT(t require.TestingT, secret string) string {
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, &AccessTokenClaims{Role: "supabase_admin"}).SignedString([]byte(secret))
-	require.NoError(t, err)
-	return token
-}
-
-func queryAuditEntries(t require.TestingT, db *storage.Connection, where string, args ...any) []models.AuditLogEntry {
-	entries := []models.AuditLogEntry{}
-	require.NoError(t, db.Q().Where(where, args...).Order("created_at asc").All(&entries))
-	return entries
-}
-
-func (ts *SCIMUsersTestSuite) do(token, method, path, body string) (*httptest.ResponseRecorder, map[string]any) {
-	return ts.doAs(protocol.MediaType, token, method, path, body)
-}
-
-func (ts *SCIMUsersTestSuite) doAs(contentType, token, method, path, body string, headers ...string) (*httptest.ResponseRecorder, map[string]any) {
-	w := ts.serve(contentType, token, method, path, body, headers...)
-
-	var decoded map[string]any
-	if w.Body.Len() > 0 {
-		require.NoError(ts.T(), json.Unmarshal(w.Body.Bytes(), &decoded), w.Body.String())
-	}
-	return w, decoded
-}
-
-func (ts *SCIMUsersTestSuite) serve(contentType, token, method, path, body string, headers ...string) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(method, "/scim/v2"+path, strings.NewReader(body))
-	r.Header.Set("Authorization", "Bearer "+token)
-	r.Header.Set("Content-Type", contentType)
-	for i := 0; i+1 < len(headers); i += 2 {
-		r.Header.Set(headers[i], headers[i+1])
-	}
-	w := httptest.NewRecorder()
-	ts.API.handler.ServeHTTP(w, r)
-	return w
-}
 
 func (ts *SCIMUsersTestSuite) create(token, body string) string {
 	w, created := ts.do(token, http.MethodPost, "/Users", body)
