@@ -142,12 +142,7 @@ func (a *API) limitSCIMInvalidToken(validate server.TokenValidator, lmt *limiter
 func (a *API) limitSCIMProvider(lmt *limiter.Limiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			providerID, err := scimProviderID(r.Context())
-			if err != nil {
-				next.ServeHTTP(w, r)
-				return
-			}
-			if err := tollbooth.LimitByKeys(lmt, []string{providerID.String()}); err != nil {
+			if providerID, err := scimProviderID(r.Context()); err == nil && tollbooth.LimitByKeys(lmt, []string{providerID.String()}) != nil {
 				handler(scimTooManyRequests)(w, r)
 				return
 			}
@@ -257,8 +252,6 @@ func scimParseVersion(version string) (*time.Time, error) {
 
 func scimTranslate(err error) error {
 	switch {
-	case err == nil:
-		return nil
 	case models.IsNotFoundError(err):
 		return errSCIMNotFound()
 	case errors.Is(err, models.SCIMUserStaleError{}), errors.Is(err, models.SCIMGroupStaleError{}):
