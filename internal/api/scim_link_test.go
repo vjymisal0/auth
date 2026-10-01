@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -1029,4 +1030,34 @@ func (ts *SCIMTestSuite) TestRenameSkippedWhenIdentityMissing() {
 	require.NoError(ts.T(), err)
 	require.NotEqual(ts.T(), user.ID, signedIn.ID)
 	require.Equal(ts.T(), 2, ts.users("alice@example.com"))
+}
+
+func (ts *SCIMTestSuite) relinkBehindRead(id string) (*scimUserRepository, models.SCIMTarget, *models.SCIMUser) {
+	existing, err := models.FindSCIMUser(ts.API.db, ts.A.ID, uuid.FromStringOrNil(id))
+	require.NoError(ts.T(), err)
+	other := ts.ssoUser(ts.A, "relinked@example.com", "relinked@example.com")
+	require.NoError(ts.T(), ts.API.db.RawQuery("UPDATE "+existing.TableName()+" SET user_id = ? WHERE id = ?", other.ID, existing.ID).Exec())
+	target := models.SCIMTarget{ProviderID: ts.A.ID, ID: existing.ID, UpdatedAt: &existing.UpdatedAt}
+	return &scimUserRepository{api: ts.API}, target, existing
+}
+
+func (ts *SCIMTestSuite) TestReplaceRefusesUserRelinkedAfterRead() {
+	repo, target, existing := ts.relinkBehindRead(ts.create(ts.TokenA, scimUser("alice")))
+	err := ts.API.db.Transaction(func(tx *storage.Connection) error {
+		_, err := repo.lockForReplace(tx, target, "alice@example.com", existing)
+		return err
+	})
+	require.ErrorIs(ts.T(), err, models.SCIMUserStaleError{})
+}
+
+func (ts *SCIMTestSuite) TestDeleteRefusesUserRelinkedAfterRead() {
+	id := ts.create(ts.TokenA, scimUser("alice"))
+	repo, target, existing := ts.relinkBehindRead(id)
+	r := httptest.NewRequest(http.MethodDelete, "/scim/v2/Users/"+id, nil)
+	err := ts.API.db.Transaction(func(tx *storage.Connection) error {
+		return repo.delete(tx, r, target, existing)
+	})
+	require.ErrorIs(ts.T(), err, models.SCIMUserStaleError{})
+	_, err = models.FindSCIMUser(ts.API.db, ts.A.ID, existing.ID)
+	require.NoError(ts.T(), err)
 }

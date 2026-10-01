@@ -241,6 +241,9 @@ func (s *scimUserRepository) delete(tx *storage.Connection, r *http.Request, tar
 	if err != nil {
 		return err
 	}
+	if !sameSCIMLink(row.UserID, existing.UserID) {
+		return models.SCIMUserStaleError{}
+	}
 	if err := logoutSCIMLinkedUser(tx, row.UserID); err != nil {
 		return err
 	}
@@ -261,10 +264,17 @@ func (s *scimUserRepository) lockForReplace(tx *storage.Connection, target model
 	if err != nil {
 		return nil, err
 	}
-	if err := lockSCIMLinkedUser(tx, old.UserID); err != nil {
-		return nil, err
+	if !sameSCIMLink(old.UserID, existing.UserID) {
+		return nil, models.SCIMUserStaleError{}
 	}
 	return old, nil
+}
+
+func sameSCIMLink(a, b *uuid.UUID) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func (s *scimUserRepository) replaceRow(tx *storage.Connection, target models.SCIMTarget, old *models.SCIMUser, resource []byte) (*models.SCIMUser, bool, error) {
