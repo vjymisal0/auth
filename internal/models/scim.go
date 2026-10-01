@@ -106,6 +106,17 @@ func findSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarg
 	return row, nil
 }
 
+func lockSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarget) (*T, error) {
+	row := new(T)
+	if err := tx.RawQuery(
+		fmt.Sprintf("SELECT %s FROM %q WHERE %s AND "+scimVersionClause+" FOR UPDATE", table.columns, table.tableName, table.targetClause()),
+		target.ID, target.ProviderID, target.UpdatedAt, target.UpdatedAt,
+	).First(row); err != nil {
+		return nil, table.writeError(tx, target, err, "locking")
+	}
+	return row, nil
+}
+
 func findUnchangedSCIMRow[T any](tx *storage.Connection, table scimTable, target SCIMTarget, resource []byte) (*T, error) {
 	row := new(T)
 	if err := tx.RawQuery(

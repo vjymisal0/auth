@@ -5,13 +5,19 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/gofrs/uuid"
 	"github.com/supabase-community/scim-go/pkg/core"
 	"github.com/supabase-community/scim-go/pkg/protocol"
+	"github.com/supabase-community/scim-go/pkg/scimerrors"
+	"github.com/supabase-community/scim-go/pkg/server"
 	"github.com/supabase/auth/internal/models"
 	"github.com/supabase/auth/internal/storage"
 )
+
+var _ server.AttributePatcher[*core.Group] = (*scimGroupRepository)(nil)
 
 type scimGroupRepository struct {
 	api *API
@@ -68,6 +74,37 @@ func (s *scimGroupRepository) Replace(ctx context.Context, group *core.Group) (*
 	})
 }
 
+func (s *scimGroupRepository) PatchAttribute(ctx context.Context, id, version string, delta server.AttributeDelta) (core.Meta, bool, error) {
+	if !strings.EqualFold(delta.Attribute, "members") {
+		return core.Meta{}, false, scimerrors.ErrInvalidPath(strconv.Quote(delta.Attribute) + " is unknown")
+	}
+	target, err := scimTarget(ctx, id, version)
+	if err != nil {
+		return core.Meta{}, false, err
+	}
+	add, err := scimAddedMemberIDs(delta.Added)
+	if err != nil {
+		return core.Meta{}, false, err
+	}
+	r, err := scimRequest(ctx)
+	if err != nil {
+		return core.Meta{}, false, err
+	}
+	var (
+		row     *models.SCIMGroup
+		changed bool
+	)
+	err = s.api.db.WithContext(ctx).Transaction(func(tx *storage.Connection) error {
+		var terr error
+		row, changed, terr = s.patchMembers(tx, r, target, scimMemberDiff{added: add, removed: scimRemovedMemberIDs(delta.Removed)})
+		return terr
+	})
+	if err != nil {
+		return core.Meta{}, false, scimError(err)
+	}
+	return scimMeta(scimResourceTypeGroup, scimBaseURL(s.api.config)+"/Groups/"+row.ID.String(), row.CreatedAt, row.UpdatedAt), changed, nil
+}
+
 func (s *scimGroupRepository) Delete(ctx context.Context, id, version string) error {
 	target, err := scimTarget(ctx, id, version)
 	if err != nil {
@@ -103,6 +140,25 @@ func (s *scimGroupRepository) delete(tx *storage.Connection, r *http.Request, ta
 		return err
 	}
 	return s.api.auditSCIMEvents(tx, r, append(events, deleted))
+}
+
+func (s *scimGroupRepository) patchMembers(tx *storage.Connection, r *http.Request, target models.SCIMTarget, delta scimMemberDiff) (*models.SCIMGroup, bool, error) {
+	row, err := models.LockSCIMGroup(tx, target)
+	if err != nil {
+		return nil, false, err
+	}
+	added, removed, err := models.PatchSCIMGroupMembers(tx, row, delta.added, delta.removed)
+	if err != nil || len(added)+len(removed) == 0 {
+		return row, false, err
+	}
+	if row, err = models.TouchSCIMGroup(tx, row); err != nil {
+		return nil, false, err
+	}
+	events, err := s.memberEvents(tx, r, row, scimMemberDiff{added: added, removed: removed})
+	if err != nil {
+		return nil, false, err
+	}
+	return row, true, s.api.auditSCIMEvents(tx, r, events)
 }
 
 func (s *scimGroupRepository) save(ctx context.Context, action models.AuditAction, group *core.Group, write scimGroupWrite) (*core.Group, error) {
@@ -305,4 +361,27 @@ func scimMemberIDs(members []core.Member) ([]uuid.UUID, error) {
 		ids = append(ids, id)
 	}
 	return ids, nil
+}
+
+func scimAddedMemberIDs(added []core.Object) ([]uuid.UUID, error) {
+	ids := make([]uuid.UUID, 0, len(added))
+	for _, object := range added {
+		value, _ := object.Get("value").(string)
+		id, err := uuid.FromString(value)
+		if err != nil {
+			return nil, errSCIMMemberNotFound()
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func scimRemovedMemberIDs(removed []string) []uuid.UUID {
+	ids := make([]uuid.UUID, 0, len(removed))
+	for _, value := range removed {
+		if id, err := uuid.FromString(value); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }

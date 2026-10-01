@@ -1,7 +1,9 @@
 package models
 
 import (
+	"bytes"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -65,6 +67,10 @@ func FindSCIMGroupForUpdate(tx *storage.Connection, providerID, id uuid.UUID) (*
 
 func FindSCIMGroups(tx *storage.Connection, providerID uuid.UUID, query SCIMQuery) ([]SCIMGroup, int, error) {
 	return findSCIMPage[SCIMGroup](tx, scimGroupsTable, providerID, query)
+}
+
+func LockSCIMGroup(tx *storage.Connection, target SCIMTarget) (*SCIMGroup, error) {
+	return lockSCIMRow[SCIMGroup](tx, scimGroupsTable, target)
 }
 
 func ReplaceSCIMGroup(tx *storage.Connection, target SCIMTarget, resource []byte) (*SCIMGroup, error) {
@@ -133,8 +139,7 @@ func ReplaceSCIMGroupMembers(tx *storage.Connection, group *SCIMGroup, scimUserI
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	removed = differenceUUIDs(current, scimUserIDs)
-	if err := removeSCIMGroupMembers(tx, group.ID, removed); err != nil {
+	if removed, err = removeSCIMGroupMembers(tx, group.ID, differenceUUIDs(current, scimUserIDs)); err != nil {
 		return nil, nil, nil, err
 	}
 	added, err = addSCIMGroupMembers(tx, group, differenceUUIDs(scimUserIDs, current))
@@ -142,6 +147,16 @@ func ReplaceSCIMGroupMembers(tx *storage.Connection, group *SCIMGroup, scimUserI
 		return nil, nil, nil, err
 	}
 	return added, removed, append(differenceUUIDs(current, removed), added...), nil
+}
+
+func PatchSCIMGroupMembers(tx *storage.Connection, group *SCIMGroup, add, remove []uuid.UUID) (added, removed []uuid.UUID, err error) {
+	if removed, err = removeSCIMGroupMembers(tx, group.ID, remove); err != nil {
+		return nil, nil, err
+	}
+	if added, err = addSCIMGroupMembers(tx, group, add); err != nil {
+		return nil, nil, err
+	}
+	return added, removed, nil
 }
 
 func ClearSCIMGroupMembers(tx *storage.Connection, groupID uuid.UUID) ([]uuid.UUID, error) {
@@ -210,32 +225,35 @@ func findSCIMGroupMemberIDs(tx *storage.Connection, groupID uuid.UUID) ([]uuid.U
 	return ids, nil
 }
 
-func removeSCIMGroupMembers(tx *storage.Connection, groupID uuid.UUID, scimUserIDs []uuid.UUID) error {
+func removeSCIMGroupMembers(tx *storage.Connection, groupID uuid.UUID, scimUserIDs []uuid.UUID) ([]uuid.UUID, error) {
+	removed := []uuid.UUID{}
 	if len(scimUserIDs) == 0 {
-		return nil
+		return removed, nil
 	}
 	if err := tx.RawQuery(
-		fmt.Sprintf("DELETE FROM %q WHERE group_id = ? AND scim_user_id = ANY(?::uuid[])", SCIMGroupMember{}.TableName()),
+		fmt.Sprintf("DELETE FROM %q WHERE group_id = ? AND scim_user_id = ANY(?::uuid[]) RETURNING scim_user_id", SCIMGroupMember{}.TableName()),
 		groupID, scimUserIDs,
-	).Exec(); err != nil {
-		return errors.Wrap(err, "error removing SCIM group members")
+	).All(&removed); err != nil {
+		return nil, errors.Wrap(err, "error removing SCIM group members")
 	}
-	return nil
+	return removed, nil
 }
 
 func addSCIMGroupMembers(tx *storage.Connection, group *SCIMGroup, scimUserIDs []uuid.UUID) ([]uuid.UUID, error) {
+	added := []uuid.UUID{}
 	if len(scimUserIDs) == 0 {
-		return []uuid.UUID{}, nil
+		return added, nil
 	}
 	locked, err := lockLiveSCIMUserIDs(tx, group.SSOProviderID, scimUserIDs)
 	if err != nil {
 		return nil, err
 	}
 	if err := tx.RawQuery(
-		fmt.Sprintf("INSERT INTO %q (group_id, scim_user_id) SELECT ?, unnest(?::uuid[])", SCIMGroupMember{}.TableName()),
+		fmt.Sprintf("INSERT INTO %q (group_id, scim_user_id) SELECT ?, unnest(?::uuid[]) ON CONFLICT DO NOTHING RETURNING scim_user_id", SCIMGroupMember{}.TableName()),
 		group.ID, locked,
-	).Exec(); err != nil {
+	).All(&added); err != nil {
 		return nil, errors.Wrap(err, "error adding SCIM group members")
 	}
-	return locked, nil
+	slices.SortFunc(added, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+	return added, nil
 }

@@ -297,6 +297,43 @@ func (ts *SCIMGroupTestSuite) TestReplaceMembersValidatesOnlyAddedMembers() {
 	require.Equal(ts.T(), SCIMGroupMemberNotFoundError{IDs: []uuid.UUID{uuid.Nil}}, err)
 }
 
+func (ts *SCIMGroupTestSuite) TestLockChecksVersion() {
+	group := ts.createGroup(ts.provider.ID, "Engineering")
+
+	locked, err := LockSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID, UpdatedAt: &group.UpdatedAt})
+	require.NoError(ts.T(), err)
+	require.Equal(ts.T(), group.ID, locked.ID)
+
+	stale := group.UpdatedAt.Add(-time.Second)
+	_, err = LockSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.provider.ID, ID: group.ID, UpdatedAt: &stale})
+	require.ErrorIs(ts.T(), err, SCIMGroupStaleError{})
+
+	_, err = LockSCIMGroup(ts.db, SCIMTarget{ProviderID: ts.createProvider().ID, ID: group.ID})
+	require.ErrorIs(ts.T(), err, SCIMGroupNotFoundError{})
+}
+
+func (ts *SCIMGroupTestSuite) TestPatchMembersReturnsOnlyChanges() {
+	group := ts.createGroup(ts.provider.ID, "Engineering")
+	alice := ts.createUser(ts.provider.ID, "alice")
+	bob := ts.createUser(ts.provider.ID, "bob")
+	carol := ts.createUser(ts.provider.ID, "carol")
+	_, _, _, err := ReplaceSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, bob.ID})
+	require.NoError(ts.T(), err)
+
+	added, removed, err := PatchSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID, carol.ID, carol.ID}, []uuid.UUID{bob.ID, uuid.Must(uuid.NewV4())})
+	require.NoError(ts.T(), err)
+	require.Equal(ts.T(), []uuid.UUID{carol.ID}, added)
+	require.Equal(ts.T(), []uuid.UUID{bob.ID}, removed)
+
+	added, removed, err = PatchSCIMGroupMembers(ts.db, group, []uuid.UUID{alice.ID}, []uuid.UUID{bob.ID})
+	require.NoError(ts.T(), err)
+	require.Empty(ts.T(), added)
+	require.Empty(ts.T(), removed)
+
+	_, _, err = PatchSCIMGroupMembers(ts.db, group, []uuid.UUID{uuid.Nil}, nil)
+	require.Equal(ts.T(), SCIMGroupMemberNotFoundError{IDs: []uuid.UUID{uuid.Nil}}, err)
+}
+
 func (ts *SCIMGroupTestSuite) TestFindMembershipsByUser() {
 	engineering := ts.createGroup(ts.provider.ID, "Engineering")
 	admins := ts.createGroup(ts.provider.ID, "Admins")
