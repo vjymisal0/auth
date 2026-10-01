@@ -235,6 +235,21 @@ func (ts *SCIMUsersTestSuite) TestOktaContentTypesAndReactivate() {
 	}
 }
 
+func (ts *SCIMUsersTestSuite) TestUnsupportedEndpointsReturnNotImplemented() {
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodGet, "/Me"},
+		{http.MethodPost, "/Bulk"},
+		{http.MethodPost, "/.search"},
+		{http.MethodPost, "/Users/.search"},
+		{http.MethodPost, "/Groups/.search"},
+	} {
+		w, _ := ts.do(ts.TokenA, tc.method, tc.path, "{}")
+		require.Equal(ts.T(), http.StatusNotImplemented, w.Code, tc.path)
+		require.Equal(ts.T(), protocol.MediaType, w.Header().Get("Content-Type"), tc.path)
+		require.Contains(ts.T(), w.Body.String(), protocol.SchemaError, tc.path)
+	}
+}
+
 func (ts *SCIMUsersTestSuite) TestUniquenessWithinProvider() {
 	ts.create(ts.TokenA, userWith("alice@example.com", "a-1"))
 
