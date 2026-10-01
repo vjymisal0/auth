@@ -2,6 +2,7 @@ package models
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -137,7 +138,55 @@ func (AuditLogEntry) TableName() string {
 }
 
 func NewAuditLogEntry(config conf.AuditLogConfiguration, r *http.Request, tx *storage.Connection, actor *User, action AuditAction, ipAddress string, traits map[string]interface{}) error {
+	l, _ := logAuditEvent(r, AuditEvent{Actor: actor, Action: action, Traits: traits}, ipAddress)
+
+	if config.DisablePostgres {
+		return nil
+	}
+
+	if err := tx.Create(&l); err != nil {
+		return errors.Wrap(err, "Database error creating audit log entry")
+	}
+
+	return nil
+}
+
+type AuditEvent struct {
+	Actor  *User
+	Action AuditAction
+	Traits map[string]interface{}
+}
+
+func NewAuditLogEntries(config conf.AuditLogConfiguration, r *http.Request, tx *storage.Connection, ipAddress string, events []AuditEvent) error {
+	ids := make([]uuid.UUID, len(events))
+	payloads := make([]string, len(events))
+	createdAt := make([]time.Time, len(events))
+	for i, event := range events {
+		l, at := logAuditEvent(r, event, ipAddress)
+		payload, err := json.Marshal(l.Payload)
+		if err != nil {
+			return errors.Wrap(err, "Error encoding audit log entry")
+		}
+		ids[i], payloads[i], createdAt[i] = l.ID, string(payload), at
+	}
+
+	if config.DisablePostgres || len(events) == 0 {
+		return nil
+	}
+
+	if err := tx.RawQuery(
+		fmt.Sprintf("INSERT INTO %q (instance_id, id, payload, created_at, ip_address) SELECT ?, e.id, e.payload::json, e.created_at, ? FROM unnest(?::uuid[], ?::text[], ?::timestamptz[]) AS e(id, payload, created_at)", AuditLogEntry{}.TableName()),
+		uuid.Nil, ipAddress, ids, payloads, createdAt,
+	).Exec(); err != nil {
+		return errors.Wrap(err, "Database error creating audit log entries")
+	}
+
+	return nil
+}
+
+func logAuditEvent(r *http.Request, event AuditEvent, ipAddress string) (AuditLogEntry, time.Time) {
 	id := uuid.Must(uuid.NewV4())
+	actor, action, traits := event.Actor, event.Action, event.Traits
 
 	username := actor.GetEmail()
 
@@ -184,7 +233,8 @@ func NewAuditLogEntry(config conf.AuditLogConfiguration, r *http.Request, tx *st
 	maps.Copy(auditLogPayload, payload)
 	auditLogPayload["audit_log_id"] = id
 	auditLogPayload["ip_address"] = ipAddress
-	auditLogPayload["created_at"] = time.Now().UTC()
+	createdAt := time.Now().UTC()
+	auditLogPayload["created_at"] = createdAt
 
 	if requestID := utilities.GetRequestID(r.Context()); requestID != "" {
 		auditLogPayload["request_id"] = requestID
@@ -196,21 +246,11 @@ func NewAuditLogEntry(config conf.AuditLogConfiguration, r *http.Request, tx *st
 		"auth_audit_event": auditLogPayload,
 	}).Info("audit_event")
 
-	if config.DisablePostgres {
-		return nil
-	}
-
-	l := AuditLogEntry{
+	return AuditLogEntry{
 		ID:        id,
 		Payload:   JSONMap(payload),
 		IPAddress: ipAddress,
-	}
-
-	if err := tx.Create(&l); err != nil {
-		return errors.Wrap(err, "Database error creating audit log entry")
-	}
-
-	return nil
+	}, createdAt
 }
 
 func FindAuditLogEntries(tx *storage.Connection, filterColumns []string, filterValue string, pageParams *Pagination) ([]*AuditLogEntry, error) {

@@ -127,9 +127,17 @@ func (a *API) withSCIMRequest(w http.ResponseWriter, req *http.Request) (context
 }
 
 func (a *API) auditSCIM(tx *storage.Connection, r *http.Request, event scimAuditEvent) error {
-	event.traits["sso_provider_id"] = event.providerID
-	event.traits["outcome"] = "success"
-	return models.NewAuditLogEntry(a.config.AuditLog, r, tx, event.actor, event.action, utilities.GetIPAddress(r), event.traits)
+	return a.auditSCIMEvents(tx, r, []scimAuditEvent{event})
+}
+
+func (a *API) auditSCIMEvents(tx *storage.Connection, r *http.Request, events []scimAuditEvent) error {
+	entries := make([]models.AuditEvent, len(events))
+	for i, event := range events {
+		event.traits["sso_provider_id"] = event.providerID
+		event.traits["outcome"] = "success"
+		entries[i] = models.AuditEvent{Actor: event.actor, Action: event.action, Traits: event.traits}
+	}
+	return models.NewAuditLogEntries(a.config.AuditLog, r, tx, utilities.GetIPAddress(r), entries)
 }
 
 func scimBaseURL(config *conf.GlobalConfiguration) string {

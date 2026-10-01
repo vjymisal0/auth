@@ -34,15 +34,14 @@ func (a *API) removeSCIMUserFromGroups(tx *storage.Connection, r *http.Request, 
 	if err != nil {
 		return err
 	}
-	for _, groupID := range groupIDs {
-		if err := a.auditSCIM(tx, r, scimAuditEvent{
+	events := make([]scimAuditEvent, len(groupIDs))
+	for i, groupID := range groupIDs {
+		events[i] = scimAuditEvent{
 			actor:      actor,
 			action:     models.SCIMGroupMemberRemovedAction,
 			providerID: row.SSOProviderID,
 			traits:     scimMemberTraits(groupID, row.ID, row.UserID),
-		}); err != nil {
-			return err
 		}
 	}
-	return nil
+	return a.auditSCIMEvents(tx, r, events)
 }

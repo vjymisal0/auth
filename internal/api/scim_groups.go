@@ -94,10 +94,15 @@ func (s *scimGroupRepository) Delete(ctx context.Context, id, version string) er
 		if row, err = models.DeleteSCIMGroup(tx, target); err != nil {
 			return err
 		}
-		if err := s.auditMembers(tx, r, row, nil, removed); err != nil {
+		events, err := s.memberEvents(tx, r, row, nil, removed)
+		if err != nil {
 			return err
 		}
-		return s.audit(tx, r, models.SCIMGroupDeletedAction, row)
+		deleted, err := s.groupEvent(r, models.SCIMGroupDeletedAction, row)
+		if err != nil {
+			return err
+		}
+		return s.api.auditSCIMEvents(tx, r, append(events, deleted))
 	}))
 }
 
@@ -141,9 +146,12 @@ func (s *scimGroupRepository) applyMembers(tx *storage.Connection, change scimGr
 	if err != nil {
 		return nil, err
 	}
+	events := []scimAuditEvent{}
 	switch {
 	case changed:
-		err = s.audit(tx, change.r, change.action, row)
+		var event scimAuditEvent
+		event, err = s.groupEvent(change.r, change.action, row)
+		events = append(events, event)
 	case len(added) > 0 || len(removed) > 0:
 		row, err = models.TouchSCIMGroup(tx, row)
 	default:
@@ -152,7 +160,11 @@ func (s *scimGroupRepository) applyMembers(tx *storage.Connection, change scimGr
 	if err != nil {
 		return nil, err
 	}
-	return row, s.auditMembers(tx, change.r, row, added, removed)
+	members, err := s.memberEvents(tx, change.r, row, added, removed)
+	if err != nil {
+		return nil, err
+	}
+	return row, s.api.auditSCIMEvents(tx, change.r, append(events, members...))
 }
 
 func (s *scimGroupRepository) render(tx *storage.Connection, providerID uuid.UUID, rows []models.SCIMGroup, projection protocol.Projection) ([]*core.Group, error) {
@@ -208,14 +220,14 @@ func (s *scimGroupRepository) renderOne(tx *storage.Connection, providerID uuid.
 	return groups[0], nil
 }
 
-func (s *scimGroupRepository) audit(tx *storage.Connection, r *http.Request, action models.AuditAction, row *models.SCIMGroup) error {
+func (s *scimGroupRepository) groupEvent(r *http.Request, action models.AuditAction, row *models.SCIMGroup) (scimAuditEvent, error) {
 	var resource struct {
 		DisplayName string `json:"displayName"`
 	}
 	if err := json.Unmarshal(row.Resource, &resource); err != nil {
-		return err
+		return scimAuditEvent{}, err
 	}
-	return s.api.auditSCIM(tx, r, scimAuditEvent{
+	return scimAuditEvent{
 		actor:      scimActor(r),
 		action:     action,
 		providerID: row.SSOProviderID,
@@ -223,14 +235,15 @@ func (s *scimGroupRepository) audit(tx *storage.Connection, r *http.Request, act
 			"scim_group_id": row.ID,
 			"display_name":  resource.DisplayName,
 		},
-	})
+	}, nil
 }
 
-func (s *scimGroupRepository) auditMembers(tx *storage.Connection, r *http.Request, row *models.SCIMGroup, added, removed []uuid.UUID) error {
+func (s *scimGroupRepository) memberEvents(tx *storage.Connection, r *http.Request, row *models.SCIMGroup, added, removed []uuid.UUID) ([]scimAuditEvent, error) {
 	links, err := models.FindSCIMUserLinks(tx, slices.Concat(added, removed))
 	if err != nil {
-		return err
+		return nil, err
 	}
+	events := make([]scimAuditEvent, 0, len(added)+len(removed))
 	for _, change := range []struct {
 		action models.AuditAction
 		ids    []uuid.UUID
@@ -243,17 +256,15 @@ func (s *scimGroupRepository) auditMembers(tx *storage.Connection, r *http.Reque
 			if linked, ok := links[id]; ok {
 				userID = &linked
 			}
-			if err := s.api.auditSCIM(tx, r, scimAuditEvent{
+			events = append(events, scimAuditEvent{
 				actor:      scimActor(r),
 				action:     change.action,
 				providerID: row.SSOProviderID,
 				traits:     scimMemberTraits(row.ID, id, userID),
-			}); err != nil {
-				return err
-			}
+			})
 		}
 	}
-	return nil
+	return events, nil
 }
 
 func scimMemberIDs(members []core.Member) ([]uuid.UUID, error) {
