@@ -174,7 +174,7 @@ func LinkSCIMUser(tx *storage.Connection, user *SCIMUser, userID uuid.UUID) erro
 	return nil
 }
 
-func IsSCIMProvisioned(tx *storage.Connection, providerID, userID uuid.UUID) (bool, error) {
+func wasSCIMProvisioned(tx *storage.Connection, providerID, userID uuid.UUID) (bool, error) {
 	provisioned, err := tx.Q().Where("sso_provider_id = ? AND user_id = ?", providerID, userID).Exists(&SCIMUser{})
 	if err != nil {
 		return false, errors.Wrap(err, "error finding SCIM user")
@@ -191,7 +191,7 @@ func IsSCIMManaged(tx *storage.Connection, providerID, userID uuid.UUID) (bool, 
 }
 
 func IsSCIMDeprovisioned(tx *storage.Connection, providerID, userID uuid.UUID) (bool, error) {
-	provisioned, err := IsSCIMProvisioned(tx, providerID, userID)
+	provisioned, err := wasSCIMProvisioned(tx, providerID, userID)
 	if err != nil {
 		return false, err
 	}

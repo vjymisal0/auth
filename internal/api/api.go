@@ -140,7 +140,7 @@ func NewAPIWithVersion(globalConfig *conf.GlobalConfiguration, db *storage.Conne
 
 	api.scim = api.newSCIMServer(
 		api.limitSCIMInvalidToken(newSCIMTokenValidator(db), api.limiterOpts.SCIMIP),
-		api.limitSCIMProvider(api.limiterOpts.SCIM),
+		api.limitSCIMByProvider(api.limiterOpts.SCIM),
 	)
 
 	if api.config.Password.HIBP.Enabled {

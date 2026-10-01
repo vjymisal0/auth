@@ -48,9 +48,9 @@ func (a *API) newSCIMServer(validate server.TokenValidator, limit func(http.Hand
 		server.ErrorHandler(scimLogError),
 		server.WithResource(server.NewResource[*core.User](scimResourceTypeUser, "/Users", core.SchemaUser, scimUserSchemas.Base().Attributes...).
 			WithExtension(core.SchemaEnterpriseUser, scimUserSchemas.Extensions()[0].Attributes...).
-			WithRepository(&scimUsers{api: a})),
+			WithRepository(&scimUserRepository{api: a})),
 		server.WithResource(server.NewResource[*core.Group](scimResourceTypeGroup, "/Groups", core.SchemaGroup, scimGroupSchemas.Base().Attributes...).
-			WithRepository(&scimGroups{api: a})),
+			WithRepository(&scimGroupRepository{api: a})),
 		server.WithAuthentication(core.NewOAuthBearerToken().AsPrimary(), authenticate),
 	)
 }
@@ -139,7 +139,7 @@ func (a *API) limitSCIMInvalidToken(validate server.TokenValidator, lmt *limiter
 	}
 }
 
-func (a *API) limitSCIMProvider(lmt *limiter.Limiter) func(http.Handler) http.Handler {
+func (a *API) limitSCIMByProvider(lmt *limiter.Limiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if providerID, err := scimProviderID(r.Context()); err == nil && tollbooth.LimitByKeys(lmt, []string{providerID.String()}) != nil {
@@ -250,7 +250,7 @@ func scimParseVersion(version string) (*time.Time, error) {
 	return &updatedAt, nil
 }
 
-func scimTranslate(err error) error {
+func scimError(err error) error {
 	switch {
 	case models.IsNotFoundError(err):
 		return errSCIMNotFound()

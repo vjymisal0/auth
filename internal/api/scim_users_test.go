@@ -142,7 +142,7 @@ func (ts *SCIMUsersTestSuite) repository() (context.Context, server.Repository[*
 	ctx, err := newSCIMTokenValidator(ts.API.db)(context.Background(), ts.TokenA)
 	require.NoError(ts.T(), err)
 	ctx = scimRequestKey.WithValue(ctx, httptest.NewRequest(http.MethodPost, "/scim/v2/Users", nil))
-	return ctx, &scimUsers{api: ts.API}
+	return ctx, &scimUserRepository{api: ts.API}
 }
 
 func emails(value string) []core.Email {
@@ -715,7 +715,7 @@ func (ts *SCIMUsersTestSuite) TestUnknownID() {
 }
 
 func (ts *SCIMUsersTestSuite) TestRequiresSSOProviderOnContext() {
-	users := &scimUsers{api: ts.API}
+	users := &scimUserRepository{api: ts.API}
 
 	_, _, err := users.List(context.Background(), &protocol.SearchRequest{Count: 10})
 	require.Error(ts.T(), err)

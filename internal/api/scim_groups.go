@@ -12,11 +12,11 @@ import (
 	"github.com/supabase/auth/internal/storage"
 )
 
-type scimGroups struct {
+type scimGroupRepository struct {
 	api *API
 }
 
-func (s *scimGroups) List(ctx context.Context, query *protocol.SearchRequest) ([]*core.Group, int, error) {
+func (s *scimGroupRepository) List(ctx context.Context, query *protocol.SearchRequest) ([]*core.Group, int, error) {
 	providerID, err := scimProviderID(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -37,7 +37,7 @@ func (s *scimGroups) List(ctx context.Context, query *protocol.SearchRequest) ([
 	return groups, total, nil
 }
 
-func (s *scimGroups) Get(ctx context.Context, id string) (*core.Group, error) {
+func (s *scimGroupRepository) Get(ctx context.Context, id string) (*core.Group, error) {
 	providerID, resourceID, _, err := scimTarget(ctx, id, "")
 	if err != nil {
 		return nil, err
@@ -45,12 +45,12 @@ func (s *scimGroups) Get(ctx context.Context, id string) (*core.Group, error) {
 	db := s.api.db.WithContext(ctx)
 	row, err := models.FindSCIMGroup(db, providerID, resourceID)
 	if err != nil {
-		return nil, scimTranslate(err)
+		return nil, scimError(err)
 	}
 	return s.renderOne(db, providerID, row, protocol.ProjectionFrom(ctx))
 }
 
-func (s *scimGroups) Create(ctx context.Context, group *core.Group) (*core.Group, error) {
+func (s *scimGroupRepository) Create(ctx context.Context, group *core.Group) (*core.Group, error) {
 	providerID, err := scimProviderID(ctx)
 	if err != nil {
 		return nil, err
@@ -61,7 +61,7 @@ func (s *scimGroups) Create(ctx context.Context, group *core.Group) (*core.Group
 	})
 }
 
-func (s *scimGroups) Replace(ctx context.Context, group *core.Group) (*core.Group, error) {
+func (s *scimGroupRepository) Replace(ctx context.Context, group *core.Group) (*core.Group, error) {
 	providerID, id, updatedAt, err := scimTarget(ctx, group.ID, group.Meta.Version)
 	if err != nil {
 		return nil, err
@@ -76,7 +76,7 @@ func (s *scimGroups) Replace(ctx context.Context, group *core.Group) (*core.Grou
 	})
 }
 
-func (s *scimGroups) Delete(ctx context.Context, id, version string) error {
+func (s *scimGroupRepository) Delete(ctx context.Context, id, version string) error {
 	providerID, resourceID, updatedAt, err := scimTarget(ctx, id, version)
 	if err != nil {
 		return err
@@ -85,7 +85,7 @@ func (s *scimGroups) Delete(ctx context.Context, id, version string) error {
 	if err != nil {
 		return err
 	}
-	return scimTranslate(s.api.db.WithContext(ctx).Transaction(func(tx *storage.Connection) error {
+	return scimError(s.api.db.WithContext(ctx).Transaction(func(tx *storage.Connection) error {
 		row, err := models.FindSCIMGroupForUpdate(tx, providerID, resourceID)
 		if err != nil {
 			return err
@@ -104,7 +104,7 @@ func (s *scimGroups) Delete(ctx context.Context, id, version string) error {
 	}))
 }
 
-func (s *scimGroups) save(ctx context.Context, providerID uuid.UUID, action models.AuditAction, group *core.Group, write func(tx *storage.Connection, resource []byte) (*models.SCIMGroup, bool, error)) (*core.Group, error) {
+func (s *scimGroupRepository) save(ctx context.Context, providerID uuid.UUID, action models.AuditAction, group *core.Group, write func(tx *storage.Connection, resource []byte) (*models.SCIMGroup, bool, error)) (*core.Group, error) {
 	members, err := scimMemberIDs(group.Members)
 	if err != nil {
 		return nil, err
@@ -144,12 +144,12 @@ func (s *scimGroups) save(ctx context.Context, providerID uuid.UUID, action mode
 		return s.auditMembers(tx, r, row, added, removed)
 	})
 	if err != nil {
-		return nil, scimTranslate(err)
+		return nil, scimError(err)
 	}
 	return s.renderOne(db, providerID, row, protocol.Projection{})
 }
 
-func (s *scimGroups) render(tx *storage.Connection, providerID uuid.UUID, rows []models.SCIMGroup, projection protocol.Projection) ([]*core.Group, error) {
+func (s *scimGroupRepository) render(tx *storage.Connection, providerID uuid.UUID, rows []models.SCIMGroup, projection protocol.Projection) ([]*core.Group, error) {
 	memberships := []models.SCIMGroupMembership{}
 	if projection.Returns("members") {
 		ids := make([]uuid.UUID, len(rows))
@@ -186,7 +186,7 @@ func (s *scimGroups) render(tx *storage.Connection, providerID uuid.UUID, rows [
 	return groups, nil
 }
 
-func (s *scimGroups) renderOne(tx *storage.Connection, providerID uuid.UUID, row *models.SCIMGroup, projection protocol.Projection) (*core.Group, error) {
+func (s *scimGroupRepository) renderOne(tx *storage.Connection, providerID uuid.UUID, row *models.SCIMGroup, projection protocol.Projection) (*core.Group, error) {
 	groups, err := s.render(tx, providerID, []models.SCIMGroup{*row}, projection)
 	if err != nil {
 		return nil, err
@@ -194,7 +194,7 @@ func (s *scimGroups) renderOne(tx *storage.Connection, providerID uuid.UUID, row
 	return groups[0], nil
 }
 
-func (s *scimGroups) audit(tx *storage.Connection, r *http.Request, action models.AuditAction, row *models.SCIMGroup) error {
+func (s *scimGroupRepository) audit(tx *storage.Connection, r *http.Request, action models.AuditAction, row *models.SCIMGroup) error {
 	var resource struct {
 		DisplayName string `json:"displayName"`
 	}
@@ -207,7 +207,7 @@ func (s *scimGroups) audit(tx *storage.Connection, r *http.Request, action model
 	})
 }
 
-func (s *scimGroups) auditMembers(tx *storage.Connection, r *http.Request, row *models.SCIMGroup, added, removed []uuid.UUID) error {
+func (s *scimGroupRepository) auditMembers(tx *storage.Connection, r *http.Request, row *models.SCIMGroup, added, removed []uuid.UUID) error {
 	links, err := models.FindSCIMUserLinks(tx, append(append([]uuid.UUID{}, added...), removed...))
 	if err != nil {
 		return err
