@@ -247,10 +247,11 @@ func (s *scimUserRepository) delete(tx *storage.Connection, r *http.Request, tar
 	if err := logoutSCIMLinkedUser(tx, row.UserID); err != nil {
 		return err
 	}
-	if err := s.api.removeSCIMUserFromGroups(tx, r, scimActor(r), row); err != nil {
+	events, err := scimUserRemovalEvents(tx, scimActor(r), row)
+	if err != nil {
 		return err
 	}
-	return s.audit(tx, r, models.SCIMUserDeletedAction, row)
+	return s.api.auditSCIMEvents(tx, r, events)
 }
 
 func (s *scimUserRepository) lockForReplace(tx *storage.Connection, target models.SCIMTarget, email string, existing *models.SCIMUser) (*models.SCIMUser, error) {

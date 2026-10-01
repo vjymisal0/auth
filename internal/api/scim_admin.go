@@ -248,16 +248,15 @@ func (a *API) revokeActiveSCIMTokens(tx *storage.Connection, r *http.Request, ac
 		return nil, err
 	}
 	prefixes := make([]string, len(tokens))
+	events := make([]scimAuditEvent, len(tokens))
 	for i := range tokens {
 		prefixes[i] = tokens[i].Prefix
 		if err := tokens[i].Revoke(tx); err != nil {
 			return nil, err
 		}
-		if err := a.auditSCIM(tx, r, scimTokenAudit(actor, models.SCIMTokenRevokedAction, &tokens[i])); err != nil {
-			return nil, err
-		}
+		events[i] = scimTokenAudit(actor, models.SCIMTokenRevokedAction, &tokens[i])
 	}
-	return prefixes, nil
+	return prefixes, a.auditSCIMEvents(tx, r, events)
 }
 
 func scimTokenAudit(actor *models.User, action models.AuditAction, token *models.SCIMToken) scimAuditEvent {

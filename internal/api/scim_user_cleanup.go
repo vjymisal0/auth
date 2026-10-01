@@ -13,35 +13,35 @@ func (a *API) deleteSCIMUsers(tx *storage.Connection, r *http.Request, actor *mo
 	if err != nil {
 		return err
 	}
+	events := []scimAuditEvent{}
 	for i := range rows {
-		if err := a.removeSCIMUserFromGroups(tx, r, actor, &rows[i]); err != nil {
+		removed, err := scimUserRemovalEvents(tx, actor, &rows[i])
+		if err != nil {
 			return err
 		}
-		if err := a.auditSCIM(tx, r, scimAuditEvent{
-			actor:      actor,
-			action:     models.SCIMUserDeletedAction,
-			providerID: rows[i].SSOProviderID,
-			traits:     scimUserTraits(&rows[i]),
-		}); err != nil {
-			return err
-		}
+		events = append(events, removed...)
 	}
-	return nil
+	return a.auditSCIMEvents(tx, r, events)
 }
 
-func (a *API) removeSCIMUserFromGroups(tx *storage.Connection, r *http.Request, actor *models.User, row *models.SCIMUser) error {
+func scimUserRemovalEvents(tx *storage.Connection, actor *models.User, row *models.SCIMUser) ([]scimAuditEvent, error) {
 	groupIDs, err := models.RemoveSCIMUserFromGroups(tx, row.ID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	events := make([]scimAuditEvent, len(groupIDs))
-	for i, groupID := range groupIDs {
-		events[i] = scimAuditEvent{
+	events := make([]scimAuditEvent, 0, len(groupIDs)+1)
+	for _, groupID := range groupIDs {
+		events = append(events, scimAuditEvent{
 			actor:      actor,
 			action:     models.SCIMGroupMemberRemovedAction,
 			providerID: row.SSOProviderID,
 			traits:     scimMemberTraits(groupID, row.ID, row.UserID),
-		}
+		})
 	}
-	return a.auditSCIMEvents(tx, r, events)
+	return append(events, scimAuditEvent{
+		actor:      actor,
+		action:     models.SCIMUserDeletedAction,
+		providerID: row.SSOProviderID,
+		traits:     scimUserTraits(row),
+	}), nil
 }
