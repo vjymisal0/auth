@@ -163,18 +163,24 @@ func LinkSCIMUser(tx *storage.Connection, user *SCIMUser, userID uuid.UUID) erro
 		return err
 	}
 
-	linked, err := tx.Q().Where("sso_provider_id = ? AND user_id = ? AND deleted_at IS NULL", user.SSOProviderID, userID).Exists(&SCIMUser{})
-	if err != nil {
+	existing := struct {
+		Live    bool `db:"live"`
+		Deleted bool `db:"deleted"`
+	}{}
+	if err := tx.RawQuery(
+		fmt.Sprintf(
+			"SELECT EXISTS(SELECT 1 FROM %[1]q WHERE sso_provider_id = ? AND user_id = ? AND deleted_at IS NULL) AS live, "+
+				"EXISTS(SELECT 1 FROM %[1]q WHERE sso_provider_id = ? AND user_id = ? AND deleted_at IS NOT NULL) AS deleted",
+			scimUsersTable.name,
+		),
+		user.SSOProviderID, userID, user.SSOProviderID, userID,
+	).First(&existing); err != nil {
 		return errors.Wrap(err, "error finding linked SCIM user")
 	}
-	if linked {
+	if existing.Live {
 		return SCIMUserLinkedError{}
 	}
-	deleted, err := tx.Q().Where("sso_provider_id = ? AND user_id = ? AND deleted_at IS NOT NULL", user.SSOProviderID, userID).Exists(&SCIMUser{})
-	if err != nil {
-		return errors.Wrap(err, "error finding deleted SCIM user")
-	}
-	if deleted {
+	if existing.Deleted {
 		return SCIMUserDeletedError{}
 	}
 
