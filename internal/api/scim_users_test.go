@@ -17,7 +17,6 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/supabase-community/scim-go/pkg/core"
-	scimCore "github.com/supabase-community/scim-go/pkg/core"
 	"github.com/supabase-community/scim-go/pkg/protocol"
 	"github.com/supabase-community/scim-go/pkg/scimerrors"
 	"github.com/supabase-community/scim-go/pkg/server"
@@ -658,20 +657,20 @@ func TestSCIMUserFields(t *testing.T) {
 	})
 
 	t.Run("prefers the primary email", func(t *testing.T) {
-		require.Equal(t, "home@example.com", scimPrimaryEmail([]scimCore.Email{
+		require.Equal(t, "home@example.com", scimPrimaryEmail([]core.Email{
 			{Value: "work@example.com"},
 			{Value: "home@example.com", Primary: new(true)},
 		}))
 	})
 
 	t.Run("falls back to the first email", func(t *testing.T) {
-		require.Equal(t, "work@example.com", scimPrimaryEmail([]scimCore.Email{{Value: "work@example.com"}, {Value: "home@example.com"}}))
+		require.Equal(t, "work@example.com", scimPrimaryEmail([]core.Email{{Value: "work@example.com"}, {Value: "home@example.com"}}))
 	})
 
 	t.Run("drops id, meta and password from the resource", func(t *testing.T) {
-		user := &scimCore.User{UserName: "alice", Password: "secret"}
+		user := &core.User{UserName: "alice", Password: "secret"}
 		user.ID = "abc"
-		user.Meta = scimCore.Meta{Version: `W/"1"`}
+		user.Meta = core.Meta{Version: `W/"1"`}
 
 		encoded, err := scimUserResource(user)
 		require.NoError(t, err)

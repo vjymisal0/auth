@@ -18,9 +18,8 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	scimCore "github.com/supabase-community/scim-go/pkg/core"
+	"github.com/supabase-community/scim-go/pkg/core"
 	"github.com/supabase-community/scim-go/pkg/protocol"
-	scimProtocol "github.com/supabase-community/scim-go/pkg/protocol"
 	"github.com/supabase-community/scim-go/pkg/server"
 	"github.com/supabase/auth/internal/conf"
 	"github.com/supabase/auth/internal/models"
@@ -66,7 +65,7 @@ func TestSCIM(t *testing.T) {
 			api.handler.ServeHTTP(w, r)
 
 			require.Equal(t, http.StatusNotFound, w.Code)
-			require.NotContains(t, w.Body.String(), scimProtocol.SchemaError)
+			require.NotContains(t, w.Body.String(), protocol.SchemaError)
 		})
 	})
 
@@ -92,8 +91,8 @@ func TestSCIM(t *testing.T) {
 			api.handler.ServeHTTP(w, r)
 
 			require.Equal(t, http.StatusOK, w.Code)
-			require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
-			require.Contains(t, w.Body.String(), scimCore.SchemaServiceProviderConfig)
+			require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
+			require.Contains(t, w.Body.String(), core.SchemaServiceProviderConfig)
 		})
 
 		for _, path := range []string{scimResourceTypesPath, scimSchemasPath} {
@@ -105,8 +104,8 @@ func TestSCIM(t *testing.T) {
 				api.handler.ServeHTTP(w, r)
 
 				require.Equal(t, http.StatusOK, w.Code)
-				require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
-				require.Contains(t, w.Body.String(), scimProtocol.SchemaListResponse)
+				require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
+				require.Contains(t, w.Body.String(), protocol.SchemaListResponse)
 			})
 
 			t.Run(path+" rejects filter query parameter", func(t *testing.T) {
@@ -118,8 +117,8 @@ func TestSCIM(t *testing.T) {
 				api.handler.ServeHTTP(w, r)
 
 				require.Equal(t, http.StatusForbidden, w.Code)
-				require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
-				require.Contains(t, w.Body.String(), scimProtocol.SchemaError)
+				require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
+				require.Contains(t, w.Body.String(), protocol.SchemaError)
 			})
 		}
 
@@ -129,7 +128,7 @@ func TestSCIM(t *testing.T) {
 				{http.MethodGet, scimResourceTypesPath},
 				{http.MethodGet, scimResourceTypesPath + "/User"},
 				{http.MethodGet, scimSchemasPath},
-				{http.MethodGet, scimSchemasPath + "/" + string(scimCore.SchemaUser)},
+				{http.MethodGet, scimSchemasPath + "/" + string(core.SchemaUser)},
 				{http.MethodGet, scimUsersPath},
 				{http.MethodPost, scimUsersPath},
 				{http.MethodGet, scimUsersPath + "/missing"},
@@ -144,7 +143,7 @@ func TestSCIM(t *testing.T) {
 					r.Header.Set("Authorization", "Bearer "+token)
 					api.handler.ServeHTTP(w, r)
 
-					require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"), w.Body.String())
+					require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"), w.Body.String())
 				})
 			}
 		})
@@ -180,7 +179,7 @@ func TestSCIM(t *testing.T) {
 						api.handler.ServeHTTP(w, r)
 
 						require.Equal(t, http.StatusUnauthorized, w.Code)
-						require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
+						require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
 						require.True(t, strings.HasPrefix(w.Header().Get("WWW-Authenticate"), "Bearer"))
 					})
 				}
@@ -195,7 +194,7 @@ func TestSCIM(t *testing.T) {
 					api.handler.ServeHTTP(w, r)
 
 					require.Equal(t, http.StatusOK, w.Code)
-					require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
+					require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
 				})
 			}
 		})
@@ -221,8 +220,8 @@ func TestSCIM(t *testing.T) {
 			api.handler.ServeHTTP(w, r)
 
 			require.Equal(t, http.StatusNotFound, w.Code)
-			require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
-			require.Contains(t, w.Body.String(), scimProtocol.SchemaError)
+			require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
+			require.Contains(t, w.Body.String(), protocol.SchemaError)
 		})
 
 		t.Run("Returns a SCIM 405 for an unsupported method", func(t *testing.T) {
@@ -237,7 +236,7 @@ func TestSCIM(t *testing.T) {
 
 						require.Equal(t, http.StatusMethodNotAllowed, w.Code)
 						require.Equal(t, "GET, HEAD", w.Header().Get("Allow"))
-						require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
+						require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
 					})
 				}
 			}
@@ -258,7 +257,7 @@ func TestSCIM(t *testing.T) {
 
 					require.Equal(t, http.StatusMethodNotAllowed, w.Code)
 					require.Equal(t, tc.allow, w.Header().Get("Allow"))
-					require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
+					require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
 				})
 			}
 		})
@@ -285,7 +284,7 @@ func newSCIMServerFor(externalURL string) *server.Server {
 
 func scimServe(t *testing.T, srv *server.Server, method, path, body string, headers ...string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
-	r.Header.Set("Content-Type", scimProtocol.MediaType)
+	r.Header.Set("Content-Type", protocol.MediaType)
 	r.Header.Set("Authorization", "Bearer "+scimValidToken)
 	for i := 0; i+1 < len(headers); i += 2 {
 		r.Header.Set(headers[i], headers[i+1])
@@ -316,7 +315,7 @@ func TestSCIMServer(t *testing.T) {
 		w := scimServe(t, srv, http.MethodGet, scimBasePath+"/ServiceProviderConfig", "")
 
 		require.Equal(t, http.StatusOK, w.Code)
-		require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
+		require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
 		require.JSONEq(t, scimFixture(t, "service_provider_config.json"), w.Body.String())
 	})
 
@@ -324,7 +323,7 @@ func TestSCIMServer(t *testing.T) {
 		w := scimServe(t, srv, http.MethodGet, scimBasePath+"/ResourceTypes", "")
 
 		require.Equal(t, http.StatusOK, w.Code)
-		require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
+		require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
 		body := scimDecode(t, w)
 		require.EqualValues(t, 2, body["totalResults"])
 		resources := map[string]map[string]any{}
@@ -333,12 +332,12 @@ func TestSCIMServer(t *testing.T) {
 		}
 		user := resources["User"]
 		require.Equal(t, "/Users", user["endpoint"])
-		require.Equal(t, string(scimCore.SchemaUser), user["schema"])
+		require.Equal(t, string(core.SchemaUser), user["schema"])
 		extension := user["schemaExtensions"].([]any)[0].(map[string]any)
-		require.Equal(t, string(scimCore.SchemaEnterpriseUser), extension["schema"])
+		require.Equal(t, string(core.SchemaEnterpriseUser), extension["schema"])
 		group := resources["Group"]
 		require.Equal(t, "/Groups", group["endpoint"])
-		require.Equal(t, string(scimCore.SchemaGroup), group["schema"])
+		require.Equal(t, string(core.SchemaGroup), group["schema"])
 		require.Empty(t, group["schemaExtensions"])
 	})
 
@@ -355,18 +354,18 @@ func TestSCIMServer(t *testing.T) {
 		w := scimServe(t, srv, http.MethodGet, scimBasePath+"/Schemas", "")
 
 		require.Equal(t, http.StatusOK, w.Code)
-		require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
+		require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
 		body := scimDecode(t, w)
 		require.EqualValues(t, 3, body["totalResults"])
 		ids := []string{}
 		for _, resource := range body["Resources"].([]any) {
 			ids = append(ids, resource.(map[string]any)["id"].(string))
 		}
-		require.ElementsMatch(t, []string{string(scimCore.SchemaUser), string(scimCore.SchemaEnterpriseUser), string(scimCore.SchemaGroup)}, ids)
+		require.ElementsMatch(t, []string{string(core.SchemaUser), string(core.SchemaEnterpriseUser), string(core.SchemaGroup)}, ids)
 	})
 
 	t.Run("Schemas/{id}", func(t *testing.T) {
-		for _, id := range []scimCore.SchemaURI{scimCore.SchemaUser, scimCore.SchemaEnterpriseUser, scimCore.SchemaGroup} {
+		for _, id := range []core.SchemaURI{core.SchemaUser, core.SchemaEnterpriseUser, core.SchemaGroup} {
 			w := scimServe(t, srv, http.MethodGet, scimBasePath+"/Schemas/"+string(id), "")
 
 			require.Equal(t, http.StatusOK, w.Code)
@@ -379,7 +378,7 @@ func TestSCIMServer(t *testing.T) {
 	})
 
 	t.Run("Group schema members reference only Users", func(t *testing.T) {
-		w := scimServe(t, srv, http.MethodGet, scimBasePath+"/Schemas/"+string(scimCore.SchemaGroup), "")
+		w := scimServe(t, srv, http.MethodGet, scimBasePath+"/Schemas/"+string(core.SchemaGroup), "")
 
 		require.Equal(t, http.StatusOK, w.Code)
 		sub := map[string]map[string]any{}
@@ -396,16 +395,16 @@ func TestSCIMServer(t *testing.T) {
 	})
 
 	t.Run("Schemas/{id} location uses the external URL prefix", func(t *testing.T) {
-		w := scimServe(t, newSCIMServerFor("https://project.supabase.co/auth/v1"), http.MethodGet, scimBasePath+"/Schemas/"+string(scimCore.SchemaUser), "")
+		w := scimServe(t, newSCIMServerFor("https://project.supabase.co/auth/v1"), http.MethodGet, scimBasePath+"/Schemas/"+string(core.SchemaUser), "")
 
 		require.Equal(t, http.StatusOK, w.Code)
-		location := "https://project.supabase.co/auth/v1" + scimBasePath + "/Schemas/" + string(scimCore.SchemaUser)
+		location := "https://project.supabase.co/auth/v1" + scimBasePath + "/Schemas/" + string(core.SchemaUser)
 		require.Equal(t, location, scimDecode(t, w)["meta"].(map[string]any)["location"])
 		require.Equal(t, location, w.Header().Get("Content-Location"))
 	})
 
 	t.Run("Schemas/User advertises the full RFC 7643 User attributes", func(t *testing.T) {
-		w := scimServe(t, srv, http.MethodGet, scimBasePath+"/Schemas/"+string(scimCore.SchemaUser), "")
+		w := scimServe(t, srv, http.MethodGet, scimBasePath+"/Schemas/"+string(core.SchemaUser), "")
 
 		require.Equal(t, http.StatusOK, w.Code)
 		names := []string{}
@@ -456,7 +455,7 @@ func TestSCIMServer(t *testing.T) {
 				w := scimServe(t, srv, http.MethodGet, scimBasePath+"/Users", "", "Authorization", tc.authorization)
 
 				require.Equal(t, tc.status, w.Code)
-				require.Equal(t, scimProtocol.MediaType, w.Header().Get("Content-Type"))
+				require.Equal(t, protocol.MediaType, w.Header().Get("Content-Type"))
 				require.Equal(t, tc.challenge, w.Header().Get("WWW-Authenticate"))
 			})
 		}
