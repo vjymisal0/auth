@@ -179,9 +179,10 @@ func (s *scimUserRepository) groupMemberships(tx *storage.Connection, providerID
 	}
 	base := scimBaseURL(s.api.config)
 	for _, m := range memberships {
+		id := m.GroupID.String()
 		groups[m.SCIMUserID] = append(groups[m.SCIMUserID], core.GroupMembership{
-			Value:   m.GroupID.String(),
-			Ref:     base + "/Groups/" + m.GroupID.String(),
+			Value:   id,
+			Ref:     base + "/Groups/" + id,
 			Display: m.Display,
 			Type:    "direct",
 		})

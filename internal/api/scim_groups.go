@@ -201,11 +201,19 @@ func (s *scimGroupRepository) members(tx *storage.Connection, providerID uuid.UU
 	if err != nil {
 		return nil, err
 	}
+	counts := make(map[uuid.UUID]int, len(rows))
+	for _, m := range memberships {
+		counts[m.GroupID]++
+	}
 	base := scimBaseURL(s.api.config)
 	for _, m := range memberships {
+		if members[m.GroupID] == nil {
+			members[m.GroupID] = make([]core.Member, 0, counts[m.GroupID])
+		}
+		id := m.SCIMUserID.String()
 		members[m.GroupID] = append(members[m.GroupID], core.Member{
-			Value: m.SCIMUserID.String(),
-			Ref:   base + "/Users/" + m.SCIMUserID.String(),
+			Value: id,
+			Ref:   base + "/Users/" + id,
 			Type:  scimResourceTypeUser,
 		})
 	}
