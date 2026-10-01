@@ -564,6 +564,11 @@ func (ts *SCIMTestSuite) TestPagination() {
 	require.Equal(ts.T(), http.StatusOK, w.Code)
 	require.EqualValues(ts.T(), 3, page["totalResults"])
 	require.Empty(ts.T(), page["Resources"])
+
+	w, page = ts.do(ts.TokenA, http.MethodGet, "/Users?startIndex=2&count=5", "")
+	require.Equal(ts.T(), http.StatusOK, w.Code)
+	require.EqualValues(ts.T(), 3, page["totalResults"])
+	require.Len(ts.T(), page["Resources"], 2)
 }
 
 func (ts *SCIMTestSuite) TestPageSizeCap() {

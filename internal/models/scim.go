@@ -3,6 +3,7 @@ package models
 import (
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -60,19 +61,21 @@ type scimTable struct {
 
 func findSCIMPage[T any](tx *storage.Connection, table scimTable, providerID uuid.UUID, query SCIMQuery) ([]T, int, error) {
 	where, args := table.where(providerID, query.Filter)
+	rows := []T{}
+	if query.Limit > 0 {
+		if err := tx.RawQuery(
+			fmt.Sprintf("SELECT %s FROM %q WHERE %s ORDER BY %s OFFSET ? LIMIT ?", table.columns, table.tableName, where, table.orderBy(query.Order)),
+			append(slices.Clone(args), query.Offset, query.Limit)...,
+		).All(&rows); err != nil {
+			return nil, 0, errors.Wrapf(err, "error finding %ss", table.label)
+		}
+		if len(rows) < query.Limit && (query.Offset == 0 || len(rows) > 0) {
+			return rows, query.Offset + len(rows), nil
+		}
+	}
 	total, err := tx.Q().Where(where, args...).Count(new(T))
 	if err != nil {
 		return nil, 0, errors.Wrapf(err, "error counting %ss", table.label)
-	}
-	rows := []T{}
-	if query.Limit <= 0 || query.Offset >= total {
-		return rows, total, nil
-	}
-	if err := tx.RawQuery(
-		fmt.Sprintf("SELECT %s FROM %q WHERE %s ORDER BY %s OFFSET ? LIMIT ?", table.columns, table.tableName, where, table.orderBy(query.Order)),
-		append(args, query.Offset, query.Limit)...,
-	).All(&rows); err != nil {
-		return nil, 0, errors.Wrapf(err, "error finding %ss", table.label)
 	}
 	return rows, total, nil
 }
