@@ -828,16 +828,24 @@ func (ts *SCIMUsersTestSuite) TestCreateRefusesUserDeletedByProvider() {
 }
 
 func (ts *SCIMUsersTestSuite) TestCreateAfterAdminDeletesProviderDeletedUser() {
-	id := ts.create(ts.TokenA, oktaUser)
-	user := ts.linkedUser(id)
-	w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+id, "")
-	require.Equal(ts.T(), http.StatusNoContent, w.Code)
-	require.NoError(ts.T(), ts.API.db.Destroy(user))
+	for _, soft := range []bool{false, true} {
+		ts.SetupTest()
+		id := ts.create(ts.TokenA, oktaUser)
+		user := ts.linkedUser(id)
+		w, _ := ts.do(ts.TokenA, http.MethodDelete, "/Users/"+id, "")
+		require.Equal(ts.T(), http.StatusNoContent, w.Code)
+		r := httptest.NewRequest(http.MethodDelete, "/admin/users/"+user.ID.String(), strings.NewReader(`{"should_soft_delete":`+strconv.FormatBool(soft)+`}`))
+		r.Header.Set("Authorization", "Bearer "+adminJWT(ts.T(), ts.API.config.JWT.Secret))
+		r.Header.Set("Content-Type", "application/json")
+		w = httptest.NewRecorder()
+		ts.API.handler.ServeHTTP(w, r)
+		require.Equal(ts.T(), http.StatusOK, w.Code, w.Body.String())
 
-	created := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
+		created := ts.linkedUser(ts.create(ts.TokenA, oktaUser))
 
-	require.NotEqual(ts.T(), user.ID, created.ID)
-	require.True(ts.T(), created.IsSSOUser)
+		require.NotEqual(ts.T(), user.ID, created.ID, soft)
+		require.True(ts.T(), created.IsSSOUser, soft)
+	}
 }
 
 func (ts *SCIMUsersTestSuite) TestCreateConcurrentSameEmailLinksToOneUser() {
