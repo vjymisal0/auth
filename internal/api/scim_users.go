@@ -25,24 +25,12 @@ type scimUserRepository struct {
 }
 
 func (s *scimUserRepository) List(ctx context.Context, query *protocol.SearchRequest) ([]*core.User, int, error) {
-	providerID, err := scimProviderID(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-	search, err := scimSearch(query, scimUserSchemas, "userName")
-	if err != nil {
-		return nil, 0, err
-	}
-	db := s.api.db.WithContext(ctx)
-	rows, total, err := models.FindSCIMUsers(db, providerID, search)
-	if err != nil {
-		return nil, 0, err
-	}
-	users, err := s.render(db, providerID, rows, protocol.ProjectionFrom(ctx))
-	if err != nil {
-		return nil, 0, err
-	}
-	return users, total, nil
+	return scimLister[models.SCIMUser, *core.User]{
+		schemas: scimUserSchemas,
+		name:    "userName",
+		find:    models.FindSCIMUsers,
+		render:  s.render,
+	}.list(ctx, s.api.db.WithContext(ctx), query)
 }
 
 func (s *scimUserRepository) Get(ctx context.Context, id string) (*core.User, error) {
@@ -85,7 +73,7 @@ func (s *scimUserRepository) Create(ctx context.Context, user *core.User) (*core
 	var row *models.SCIMUser
 	var created *models.User
 	err = db.Transaction(func(tx *storage.Connection) error {
-		if terr := models.LockAccountLinking(tx, "sso:"+providerID.String(), scimUserEmail(user)); terr != nil {
+		if terr := models.LockAccountLinking(tx, scimProviderType(providerID), scimUserEmail(user)); terr != nil {
 			return terr
 		}
 		var terr error
@@ -139,7 +127,7 @@ func (s *scimUserRepository) Replace(ctx context.Context, user *core.User) (*cor
 	var row *models.SCIMUser
 	var created *models.User
 	err = db.Transaction(func(tx *storage.Connection) error {
-		if terr := models.LockAccountLinking(tx, "sso:"+providerID.String(), email); terr != nil {
+		if terr := models.LockAccountLinking(tx, scimProviderType(providerID), email); terr != nil {
 			return terr
 		}
 		if existing.UserID != nil {
@@ -279,7 +267,7 @@ func (s *scimUserRepository) syncAuthUser(tx *storage.Connection, providerID uui
 		}
 		err := models.RenameSCIMIdentity(tx, models.SCIMIdentityRename{
 			UserID:   linked.ID,
-			Provider: "sso:" + providerID.String(),
+			Provider: scimProviderType(providerID),
 			From:     from,
 			To:       user.UserName,
 			Data:     data,
@@ -312,7 +300,7 @@ func (s *scimUserRepository) provisionAuthUser(tx *storage.Connection, row *mode
 }
 
 func (s *scimUserRepository) linkAuthUser(tx *storage.Connection, row *models.SCIMUser, user *core.User) (*models.User, bool, error) {
-	providerType := "sso:" + row.SSOProviderID.String()
+	providerType := scimProviderType(row.SSOProviderID)
 	decision, err := s.decideAccountLinking(tx, providerType, user)
 	if err != nil {
 		return nil, false, err
@@ -352,7 +340,7 @@ func (s *scimUserRepository) runBeforeUserCreatedHook(r *http.Request, db *stora
 	if !s.api.hooksMgr.Enabled(v0hooks.BeforeUserCreated) {
 		return nil
 	}
-	providerType := "sso:" + providerID.String()
+	providerType := scimProviderType(providerID)
 	decision, err := s.decideAccountLinking(db, providerType, user)
 	if err != nil || decision.Decision != models.CreateAccount {
 		return err

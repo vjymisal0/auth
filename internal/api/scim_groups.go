@@ -17,24 +17,12 @@ type scimGroupRepository struct {
 }
 
 func (s *scimGroupRepository) List(ctx context.Context, query *protocol.SearchRequest) ([]*core.Group, int, error) {
-	providerID, err := scimProviderID(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-	search, err := scimSearch(query, scimGroupSchemas, "displayName")
-	if err != nil {
-		return nil, 0, err
-	}
-	db := s.api.db.WithContext(ctx)
-	rows, total, err := models.FindSCIMGroups(db, providerID, search)
-	if err != nil {
-		return nil, 0, err
-	}
-	groups, err := s.render(db, providerID, rows, protocol.ProjectionFrom(ctx))
-	if err != nil {
-		return nil, 0, err
-	}
-	return groups, total, nil
+	return scimLister[models.SCIMGroup, *core.Group]{
+		schemas: scimGroupSchemas,
+		name:    "displayName",
+		find:    models.FindSCIMGroups,
+		render:  s.render,
+	}.list(ctx, s.api.db.WithContext(ctx), query)
 }
 
 func (s *scimGroupRepository) Get(ctx context.Context, id string) (*core.Group, error) {

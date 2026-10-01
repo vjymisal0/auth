@@ -32,6 +32,13 @@ const (
 	scimResourceTypeGroup = "Group"
 )
 
+type scimLister[Row, Resource any] struct {
+	schemas core.Schemas
+	name    string
+	find    func(*storage.Connection, uuid.UUID, models.SCIMQuery) ([]Row, int, error)
+	render  func(*storage.Connection, uuid.UUID, []Row, protocol.Projection) ([]Resource, error)
+}
+
 var errMissingSSOProvider = errors.New("scim: request has no SSO provider")
 
 var (
@@ -41,6 +48,26 @@ var (
 	}
 	scimGroupSchemas = newSCIMGroupSchemas()
 )
+
+func (l scimLister[Row, Resource]) list(ctx context.Context, db *storage.Connection, query *protocol.SearchRequest) ([]Resource, int, error) {
+	providerID, err := scimProviderID(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	search, err := scimSearch(query, l.schemas, l.name)
+	if err != nil {
+		return nil, 0, err
+	}
+	rows, total, err := l.find(db, providerID, search)
+	if err != nil {
+		return nil, 0, err
+	}
+	resources, err := l.render(db, providerID, rows, protocol.ProjectionFrom(ctx))
+	if err != nil {
+		return nil, 0, err
+	}
+	return resources, total, nil
+}
 
 func (a *API) newSCIMServer(validate server.TokenValidator, limit func(http.Handler) http.Handler) *server.Server {
 	requireToken := server.RequireBearerToken(validate)
@@ -223,6 +250,10 @@ func scimProviderID(ctx context.Context) (uuid.UUID, error) {
 		return uuid.Nil, errMissingSSOProvider
 	}
 	return token.SSOProviderID, nil
+}
+
+func scimProviderType(providerID uuid.UUID) string {
+	return "sso:" + providerID.String()
 }
 
 func scimRequest(ctx context.Context) (*http.Request, error) {
