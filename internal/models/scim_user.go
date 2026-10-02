@@ -187,13 +187,17 @@ func LinkSCIMUser(tx *storage.Connection, user *SCIMUser, userID uuid.UUID) erro
 }
 
 func LinkNewSCIMUser(tx *storage.Connection, user *SCIMUser, userID uuid.UUID) error {
+	updated := struct {
+		UpdatedAt time.Time `db:"updated_at"`
+	}{}
 	if err := tx.RawQuery(
-		fmt.Sprintf("UPDATE %q SET user_id = ? WHERE id = ?", scimUsersTable.tableName),
+		fmt.Sprintf("UPDATE %q SET user_id = ?, updated_at = clock_timestamp() WHERE id = ? RETURNING updated_at", scimUsersTable.tableName),
 		userID, user.ID,
-	).Exec(); err != nil {
+	).First(&updated); err != nil {
 		return errors.Wrap(err, "error linking SCIM user")
 	}
 	user.UserID = &userID
+	user.UpdatedAt = updated.UpdatedAt
 	return nil
 }
 
