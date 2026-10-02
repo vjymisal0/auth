@@ -370,7 +370,7 @@ func (s *scimGroupRepository) List(ctx context.Context, query *protocol.SearchRe
 	}.list(ctx, s.api.db.WithContext(ctx), query)
 }
 
-func (s *scimGroupRepository) Get(ctx context.Context, id string) (*core.Group, error) {
+func (s *scimGroupRepository) Read(ctx context.Context, id string) (*core.Group, error) {
 	target, err := scimTarget(ctx, id, "")
 	if err != nil {
 		return nil, err
@@ -408,8 +408,8 @@ func (s *scimGroupRepository) Update(ctx context.Context, group *core.Group) (*c
 	})
 }
 
-func (s *scimGroupRepository) Delete(ctx context.Context, id, version string) error {
-	target, err := scimTarget(ctx, id, version)
+func (s *scimGroupRepository) Delete(ctx context.Context, group *core.Group) error {
+	target, err := scimTarget(ctx, group.ID, group.Meta.Version)
 	if err != nil {
 		return err
 	}
@@ -631,7 +631,7 @@ func (s *scimUserRepository) List(ctx context.Context, query *protocol.SearchReq
 	}.list(ctx, s.api.db.WithContext(ctx), query)
 }
 
-func (s *scimUserRepository) Get(ctx context.Context, id string) (*core.User, error) {
+func (s *scimUserRepository) Read(ctx context.Context, id string) (*core.User, error) {
 	target, err := scimTarget(ctx, id, "")
 	if err != nil {
 		return nil, err
@@ -698,8 +698,8 @@ func (s *scimUserRepository) Update(ctx context.Context, user *core.User) (*core
 	})
 }
 
-func (s *scimUserRepository) Delete(ctx context.Context, id, version string) error {
-	target, err := scimTarget(ctx, id, version)
+func (s *scimUserRepository) Delete(ctx context.Context, user *core.User) error {
+	target, err := scimTarget(ctx, user.ID, user.Meta.Version)
 	if err != nil {
 		return err
 	}

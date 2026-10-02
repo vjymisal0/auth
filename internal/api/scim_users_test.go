@@ -181,7 +181,7 @@ func (ts *SCIMTestSuite) TestReplaceRejectsStaleVersion() {
 
 	created, err := users.Create(ctx, &core.User{UserName: "alice@example.com", Emails: emails("alice@example.com")})
 	require.NoError(ts.T(), err)
-	read, err := users.Get(ctx, created.ID)
+	read, err := users.Read(ctx, created.ID)
 	require.NoError(ts.T(), err)
 	require.Equal(ts.T(), created.Meta.Version, read.Meta.Version)
 
@@ -217,6 +217,12 @@ func (ts *SCIMTestSuite) TestReplaceRejectsStaleVersion() {
 
 func (ts *SCIMTestSuite) TestDeleteRejectsStaleVersion() {
 	ctx, users := ts.repository()
+	target := func(id, version string) *core.User {
+		user := &core.User{}
+		user.ID = id
+		user.Meta = core.Meta{Version: version}
+		return user
+	}
 
 	created, err := users.Create(ctx, &core.User{UserName: "alice@example.com", Emails: emails("alice@example.com")})
 	require.NoError(ts.T(), err)
@@ -228,7 +234,7 @@ func (ts *SCIMTestSuite) TestDeleteRejectsStaleVersion() {
 	require.NoError(ts.T(), err)
 
 	for _, version := range []string{created.Meta.Version, `W/"garbage"`} {
-		err := users.Delete(ctx, created.ID, version)
+		err := users.Delete(ctx, target(created.ID, version))
 		var scimErr *scimerrors.Error
 		require.ErrorAs(ts.T(), err, &scimErr, version)
 		require.Equal(ts.T(), http.StatusPreconditionFailed, scimErr.StatusCode(), version)
@@ -240,11 +246,11 @@ func (ts *SCIMTestSuite) TestDeleteRejectsStaleVersion() {
 
 	missing := uuid.Must(uuid.NewV4()).String()
 	var scimErr *scimerrors.Error
-	err = users.Delete(ctx, missing, "")
+	err = users.Delete(ctx, target(missing, ""))
 	require.ErrorAs(ts.T(), err, &scimErr)
 	require.Equal(ts.T(), http.StatusNotFound, scimErr.StatusCode())
 
-	require.NoError(ts.T(), users.Delete(ctx, created.ID, replaced.Meta.Version))
+	require.NoError(ts.T(), users.Delete(ctx, target(created.ID, replaced.Meta.Version)))
 	require.NoError(ts.T(), ts.API.db.Q().Where("id = ?", created.ID).First(&stored))
 	require.NotNil(ts.T(), stored.DeletedAt)
 }
@@ -635,7 +641,7 @@ func (ts *SCIMTestSuite) TestRequiresSSOProviderOnContext() {
 
 	_, _, err := users.List(context.Background(), &protocol.SearchRequest{Count: 10})
 	require.Error(ts.T(), err)
-	_, err = users.Get(context.Background(), "00000000-0000-0000-0000-000000000000")
+	_, err = users.Read(context.Background(), "00000000-0000-0000-0000-000000000000")
 	require.Error(ts.T(), err)
 }
 
